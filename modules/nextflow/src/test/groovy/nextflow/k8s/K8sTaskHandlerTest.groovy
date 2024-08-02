@@ -256,7 +256,7 @@ class K8sTaskHandlerTest extends Specification {
         2 * podOptions.getEnvVars() >> [ PodEnv.value('FOO','bar') ]
         2 * podOptions.getMountSecrets() >> [ new PodMountSecret('my-secret/key-z', '/data/secret.txt') ]
         2 * podOptions.getMountConfigMaps() >> [ new PodMountConfig('my-data/key-x', '/etc/file.txt') ]
-        2 * podOptions.getMountHostPaths() >> [ new PodHostMount('/host/x', '/mnt/x') ]
+        2 * podOptions.getMountHostPaths() >> [ new PodHostMount('/host/x', '/mnt/x', 'DirectoryOrCreate') ]
         and:
         result.spec.containers[0].env == [[name:'FOO', value:'bar']]
         result.spec.containers[0].volumeMounts == [
@@ -267,7 +267,7 @@ class K8sTaskHandlerTest extends Specification {
         result.spec.volumes == [
             [name:'vol-1', configMap:[name:'my-data', items:[[key:'key-x', path:'file.txt']]]],
             [name:'vol-2', secret:[secretName:'my-secret', items:[[key:'key-z', path:'secret.txt']]]],
-            [name:'vol-3', 'hostPath':[path:'/host/x']]
+            [name:'vol-3', 'hostPath':[path:'/host/x', type:'DirectoryOrCreate']]
         ]
 
     }
@@ -341,8 +341,8 @@ class K8sTaskHandlerTest extends Specification {
             [name:'vol-4', mountPath: '/data']
         ]
         result.spec.volumes == [
-            [name:'vol-3', hostPath:[path:'/tmp']],
-            [name:'vol-4', hostPath:[path:'/data']]
+            [name:'vol-3', hostPath:[path:'/tmp', type:'']],
+            [name:'vol-4', hostPath:[path:'/data', type:'']]
         ]
 
     }

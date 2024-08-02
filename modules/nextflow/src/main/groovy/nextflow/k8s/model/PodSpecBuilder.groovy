@@ -301,8 +301,8 @@ class PodSpecBuilder {
         return this
     }
 
-    PodSpecBuilder withHostMount( String host, String mount ) {
-        this.hostMounts.add( new PodHostMount(host, mount))
+    PodSpecBuilder withHostMount( String host, String mount, String type=null ) {
+        this.hostMounts.add( new PodHostMount(host, mount, type))
         return this
     }
 
@@ -574,7 +574,7 @@ class PodSpecBuilder {
         for( PodHostMount entry : hostMounts ) {
             final name = nextVolName()
             mounts << [name: name, mountPath: entry.mountPath]
-            volumes << [name: name, hostPath: [path: entry.hostPath]]
+            volumes << [name: name, hostPath: [path: entry.hostPath, type: entry.type ?: '' ]]
         }
 
 

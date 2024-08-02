@@ -399,20 +399,37 @@ class PodSpecBuilderTest extends Specification {
                 .withCommand(['echo'])
                 .withHostMount('/tmp','/scratch')
                 .withHostMount('/host/data','/mnt/container')
+                .withHostMount('/host/dirtype','/mnt/dirtype', 'Directory')
                 .build()
 
         then:
         pod.spec.containers[0].volumeMounts == [
                 [name:'vol-1', mountPath:'/scratch'],
-                [name:'vol-2', mountPath:'/mnt/container']
+                [name:'vol-2', mountPath:'/mnt/container'],
+                [name:'vol-3', mountPath:'/mnt/dirtype'],
         ]
         pod.spec.volumes == [
-                [name:'vol-1', hostPath: [path:'/tmp']],
-                [name:'vol-2', hostPath: [path:'/host/data']]
+                [name:'vol-1', hostPath: [path:'/tmp', type:'']],
+                [name:'vol-2', hostPath: [path:'/host/data', type:'']],
+                [name:'vol-3', hostPath: [path:'/host/dirtype', type:'Directory']],
         ]
 
     }
 
+
+    def 'should fail on invalid hostpath type mount' () {
+
+        when:
+        def pod = new PodSpecBuilder()
+                .withPodName('foo')
+                .withImageName('busybox')
+                .withCommand(['echo'])
+                .withHostMount('/host/dirtype','/mnt/dirtype', 'InvalidDirectory')
+                .build()
+
+        then:
+        thrown(IllegalArgumentException)
+    }
 
     def 'should return secret file volume and mounts' () {
 
