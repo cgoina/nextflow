@@ -416,7 +416,6 @@ class PodSpecBuilderTest extends Specification {
 
     }
 
-
     def 'should fail on invalid hostpath type mount' () {
 
         when:
