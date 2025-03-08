@@ -38,11 +38,14 @@ class PodHostMount {
 
     String mountPath
 
+    boolean readOnly
+
     String type // must be empty or a value from VALID_TYPES
 
-    PodHostMount(String host, String container, String type=null) {
+    PodHostMount(String host, String container, boolean readOnly=false, String type=null) {
         this.hostPath = host
         this.mountPath = container
+        this.readOnly = readOnly
         this.type = type
         validateTypeEnum(type)
     }

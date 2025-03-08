@@ -399,7 +399,8 @@ class PodSpecBuilderTest extends Specification {
                 .withCommand(['echo'])
                 .withHostMount('/tmp','/scratch')
                 .withHostMount('/host/data','/mnt/container')
-                .withHostMount('/host/dirtype','/mnt/dirtype', 'Directory')
+                .withHostMount('/host/dirtype','/mnt/dirtype', false, 'Directory')
+                .withHostMount('/host/readonlydata','/mnt/container', true)
                 .build()
 
         then:
@@ -407,11 +408,13 @@ class PodSpecBuilderTest extends Specification {
                 [name:'vol-1', mountPath:'/scratch'],
                 [name:'vol-2', mountPath:'/mnt/container'],
                 [name:'vol-3', mountPath:'/mnt/dirtype'],
+                [name:'vol-4', mountPath:'/mnt/container', readOnly: true],
         ]
         pod.spec.volumes == [
-                [name:'vol-1', hostPath: [path:'/tmp', type:'']],
-                [name:'vol-2', hostPath: [path:'/host/data', type:'']],
+                [name:'vol-1', hostPath: [path:'/tmp']],
+                [name:'vol-2', hostPath: [path:'/host/data']],
                 [name:'vol-3', hostPath: [path:'/host/dirtype', type:'Directory']],
+                [name:'vol-4', hostPath: [path:'/host/readonlydata']],
         ]
 
     }
@@ -423,7 +426,7 @@ class PodSpecBuilderTest extends Specification {
                 .withPodName('foo')
                 .withImageName('busybox')
                 .withCommand(['echo'])
-                .withHostMount('/host/dirtype','/mnt/dirtype', 'InvalidDirectory')
+                .withHostMount('/host/dirtype','/mnt/dirtype',false,'InvalidDirectory')
                 .build()
 
         then:
