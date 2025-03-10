@@ -301,8 +301,8 @@ class PodSpecBuilder {
         return this
     }
 
-    PodSpecBuilder withHostMount( String host, String mount, boolean readOnly=false, String type=null ) {
-        this.hostMounts.add( new PodHostMount(host, mount, readOnly, type))
+    PodSpecBuilder withHostMount( String host, String mount, boolean readOnly=false) {
+        this.hostMounts.add( new PodHostMount(host, mount, readOnly))
         return this
     }
 
@@ -573,16 +573,12 @@ class PodSpecBuilder {
         // -- host path volumes
         for( PodHostMount entry : hostMounts ) {
             final name = nextVolName()
-            if (entry.readOnly) {
-                mounts << [name: name, mountPath: entry.mountPath, readOnly: true]
-            } else {
-                mounts << [name: name, mountPath: entry.mountPath]
-            }
-            if (entry.type) {
-                volumes << [name: name, hostPath: [path: entry.hostPath, type: entry.type]]
-            } else {
-                volumes << [name: name, hostPath: [path: entry.hostPath]]
-            }
+            def nextMount = [name: name, mountPath: entry.mountPath]
+            if( entry.readOnly )
+                nextMount.readOnly = true
+
+            mounts << nextMount
+            volumes << [name: name, hostPath: [path: entry.hostPath]]
         }
 
 
