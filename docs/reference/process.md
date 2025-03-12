@@ -1133,7 +1133,7 @@ The following options are available:
   :::
 : *Can be specified multiple times*
 : Allows creating [hostPath](https://kubernetes.io/docs/concepts/storage/volumes/#hostpath) volume and access it with the specified `mountPath` in the pod.
-: The `readOnly` option can be used to mount the volume as read-only (default: `false`)
+: The `readOnly` option can be used to mount the volume as read-only (default: `false`).
 
 `imagePullPolicy: 'IfNotPresent' | 'Always' | 'Never'`
 : Specifies the [image pull policy](https://kubernetes.io/docs/concepts/containers/images/#image-pull-policy) used by the pod to pull the container image.
