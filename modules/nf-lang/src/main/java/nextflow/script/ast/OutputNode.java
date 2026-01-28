@@ -15,18 +15,20 @@
  */
 package nextflow.script.ast;
 
-import org.codehaus.groovy.ast.ASTNode;
+import org.codehaus.groovy.ast.ClassNode;
+import org.codehaus.groovy.ast.Parameter;
 import org.codehaus.groovy.ast.stmt.Statement;
 
 /**
- * A workflow output definition.
+ * An output declaration.
  *
  * @author Ben Sherman <bentshermann@gmail.com>
  */
-public class OutputNode extends ASTNode {
+public class OutputNode extends Parameter {
     public final Statement body;
 
-    public OutputNode(Statement body) {
+    public OutputNode(String name, ClassNode type, Statement body) {
+        super(type, name);
         this.body = body;
     }
 }

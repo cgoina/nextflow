@@ -14,16 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-nextflow.preview.output = true
+nextflow.preview.types = true
 
 params.save_bam_bai = false
 
 process fastqc {
   input:
-  val id
+  id: String
 
   output:
-  tuple val(id), path('*.fastqc.log')
+  tuple(id, file('*.fastqc.log'))
 
   script:
   """
@@ -33,11 +33,11 @@ process fastqc {
 
 process align {
   input:
-  val id
+  id: String
 
   output:
-  tuple val(id), path('*.bam')
-  tuple val(id), path('*.bai')
+  bam = tuple(id, file('*.bam'))
+  bai = tuple(id, file('*.bai'))
 
   script:
   """
@@ -48,10 +48,10 @@ process align {
 
 process quant {
   input:
-  val id
+  id: String
 
   output:
-  tuple val(id), path('quant')
+  tuple(id, file('quant'))
 
   script:
   '''
@@ -62,9 +62,25 @@ process quant {
   '''
 }
 
+process summary {
+  input:
+  logs: Bag<Path>
+
+  output:
+  tuple(file('summary_report.html'), file('summary_data/data.json'), file('summary_data/fastqc.txt'))
+
+  script:
+  '''
+  touch summary_report.html
+  mkdir summary_data
+  touch summary_data/data.json
+  touch summary_data/fastqc.txt
+  '''
+}
+
 workflow {
   main:
-  ids = Channel.of('alpha', 'beta', 'delta')
+  ids = channel.of('alpha', 'beta', 'delta')
   ch_fastqc = fastqc(ids)
   (ch_bam, ch_bai) = align(ids)
   ch_quant = quant(ids)
@@ -77,36 +93,43 @@ workflow {
       [
         id: id,
         fastqc: fastqc,
-        bam: params.save_bam_bai ? bam : null,
-        bai: params.save_bam_bai ? bai : null,
+        bam: bam,
+        bai: bai,
         quant: quant
       ]
     }
 
+  ch_logs = ch_samples
+    .map { sample -> sample.fastqc }
+    .collect()
+
+  summary(ch_logs)
+
   publish:
-  ch_samples >> 'samples'
+  samples = ch_samples
+  summary = summary.out
 }
 
 output {
   samples {
     path { sample ->
-      def dirs = [
-        'bam': 'align',
-        'bai': 'align',
-        'log': 'fastqc'
-      ]
-      return { filename ->
-        def ext = filename.tokenize('.').last()
-        def dir = dirs[ext]
-        dir != null
-          ? "${dir}/${filename}"
-          : "${filename}/${sample.id}"
-      }
+      sample.fastqc >> 'log/'
+      sample.bam >> (params.save_bam_bai ? 'align/' : null)
+      sample.bai >> (params.save_bam_bai ? 'align/' : null)
+      sample.quant >> "quant/${sample.id}"
     }
     index {
       path 'samples.csv'
       header true
       sep ','
+    }
+  }
+
+  summary {
+    path { report, data_json, fastqc_txt ->
+      report >> './'
+      data_json >> './'
+      fastqc_txt >> './'
     }
   }
 }

@@ -61,6 +61,10 @@ public class ResolveIncludeVisitor extends ScriptVisitorSupport {
         this.changedUris = changedUris;
     }
 
+    public ResolveIncludeVisitor(SourceUnit sourceUnit, Compiler compiler) {
+        this(sourceUnit, compiler, null);
+    }
+
     @Override
     protected SourceUnit getSourceUnit() {
         return sourceUnit;
@@ -83,36 +87,36 @@ public class ResolveIncludeVisitor extends ScriptVisitorSupport {
         if( !isIncludeStale(node, includeUri) )
             return;
         changed = true;
-        for( var module : node.modules )
-            module.setTarget(null);
+        for( var entry : node.entries )
+            entry.setTarget(null);
         var includeUnit = compiler.getSource(includeUri);
         if( includeUnit == null ) {
-            addError("Invalid include source: '" + includeUri + "'", node);
+            addError("Invalid include source: '" + includeUri.getPath() + "'", node);
             return;
         }
         if( includeUnit.getAST() == null ) {
-            addError("Module could not be parsed: '" + includeUri + "'", node);
+            addError("Module could not be parsed: '" + includeUri.getPath() + "'", node);
             return;
         }
         var definitions = getDefinitions(includeUri);
-        for( var module : node.modules ) {
-            var includedName = module.name;
+        for( var entry : node.entries ) {
+            var includedName = entry.name;
             var includedNode = definitions.stream()
                 .filter(defNode -> includedName.equals(defNode.getName()))
                 .findFirst();
             if( !includedNode.isPresent() ) {
-                addError("Included name '" + includedName + "' is not defined in module '" + includeUri + "'", node);
+                addError("Included name '" + includedName + "' is not defined in module '" + includeUri.getPath() + "'", node);
                 continue;
             }
-            module.setTarget(includedNode.get());
+            entry.setTarget(includedNode.get());
         }
     }
 
     private static void setPlaceholderTargets(IncludeNode node) {
-        for( var module : node.modules ) {
-            if( module.getTarget() == null ) {
-                var target = new FunctionNode(module.getNameOrAlias());
-                module.setTarget(target);
+        for( var entry : node.entries ) {
+            if( entry.getTarget() == null ) {
+                var target = new FunctionNode(entry.getNameOrAlias());
+                entry.setTarget(target);
             }
         }
     }
@@ -127,10 +131,10 @@ public class ResolveIncludeVisitor extends ScriptVisitorSupport {
     }
 
     private boolean isIncludeStale(IncludeNode node, URI includeUri) {
-        if( changedUris.contains(uri) || changedUris.contains(includeUri) )
+        if( changedUris == null || changedUris.contains(uri) || changedUris.contains(includeUri) )
             return true;
-        for( var module : node.modules ) {
-            if( module.getTarget() == null )
+        for( var entry : node.entries ) {
+            if( entry.getTarget() == null )
                 return true;
         }
         return false;

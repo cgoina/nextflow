@@ -36,7 +36,7 @@ import nextflow.script.ScriptLoader
 import nextflow.script.ScriptMeta
 import nextflow.util.Duration
 import nextflow.util.MemoryUnit
-import org.apache.commons.lang.StringUtils
+import org.apache.commons.lang3.StringUtils
 import org.codehaus.groovy.control.CompilationFailedException
 import org.codehaus.groovy.control.CompilerConfiguration
 import org.codehaus.groovy.control.customizers.ASTTransformationCustomizer
@@ -147,7 +147,7 @@ class ScriptLoaderV1 implements ScriptLoader {
      * with the implicit and user variables
      */
     protected String computeClassName(script) {
-        final PREFIX = 'Script_'
+        final PREFIX = '_nf_script_'
 
         if( script instanceof Path ) {
             return FileHelper.getIdentifier(script,PREFIX)
@@ -165,7 +165,7 @@ class ScriptLoaderV1 implements ScriptLoader {
         throw new IllegalArgumentException("Unknown script type: ${script?.getClass()?.getName()}")
     }
 
-    private GroovyShell getInterpreter() {
+    GroovyShell getInterpreter() {
         if( !binding && session )
             binding = session.binding
         if( !binding )
@@ -186,7 +186,8 @@ class ScriptLoaderV1 implements ScriptLoader {
             }
             script = (BaseScript)parsed
             final meta = ScriptMeta.get(script)
-            meta.setScriptPath(scriptPath)
+            if( scriptPath!=null )
+                meta.setScriptPath(scriptPath)
             meta.setModule(module)
             meta.validate()
             return this

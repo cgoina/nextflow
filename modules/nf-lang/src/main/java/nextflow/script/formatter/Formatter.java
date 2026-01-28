@@ -24,6 +24,7 @@ import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.CodeVisitorSupport;
 import org.codehaus.groovy.ast.Parameter;
+import org.codehaus.groovy.ast.Variable;
 import org.codehaus.groovy.ast.expr.BinaryExpression;
 import org.codehaus.groovy.ast.expr.BitwiseNegationExpression;
 import org.codehaus.groovy.ast.expr.CastExpression;
@@ -183,15 +184,19 @@ public class Formatter extends CodeVisitorSupport {
         currentRootExpr = node.getExpression();
         appendLeadingComments(node);
         appendIndent();
-        if( node.getStatementLabels() != null ) {
-            for( var label : node.getStatementLabels() ) {
-                append(label);
-                append(": ");
-            }
-        }
+        visitStatementLabels(node);
         visit(node.getExpression());
         appendNewLine();
         currentRootExpr = cre;
+    }
+
+    private void visitStatementLabels(ExpressionStatement node) {
+        if( node.getStatementLabels() == null )
+            return;
+        for( var label : DefaultGroovyMethods.asReversed(node.getStatementLabels()) ) {
+            append(label);
+            append(": ");
+        }
     }
 
     @Override
@@ -213,7 +218,7 @@ public class Formatter extends CodeVisitorSupport {
         append("assert ");
         visit(node.getBooleanExpression());
         if( !(node.getMessageExpression() instanceof ConstantExpression ce && ce.isNullExpression()) ) {
-            append(", ");
+            append(" : ");
             visit(node.getMessageExpression());
         }
         appendNewLine();
@@ -250,12 +255,11 @@ public class Formatter extends CodeVisitorSupport {
         append("catch (");
 
         var variable = node.getVariable();
-        var type = variable.getType();
-        if( !ClassHelper.isObjectType(type) ) {
-            append(type.getNameWithoutPackage());
-            append(' ');
-        }
         append(variable.getName());
+        if( hasType(variable) ) {
+            append(": ");
+            append(variable.getType().getNameWithoutPackage());
+        }
 
         append(") {\n");
         incIndent();
@@ -276,11 +280,14 @@ public class Formatter extends CodeVisitorSupport {
             inWrappedMethodChain = true;
 
         if( !node.isImplicitThis() ) {
-            visit(node.getObjectExpression());
+            var receiver = node.getObjectExpression();
+            visit(receiver);
             if( inWrappedMethodChain ) {
-                appendNewLine();
                 incIndent();
-                appendIndent();
+                if( !nextflow.script.types.Types.isNamespace(receiver.getType()) ) {
+                    appendNewLine();
+                    appendIndent();
+                }
             }
             if( node.isSpreadSafe() )
                 append('*');
@@ -476,6 +483,7 @@ public class Formatter extends CodeVisitorSupport {
         }
         else if( code.getStatements().size() == 1 && code.getStatements().get(0) instanceof ExpressionStatement es && !shouldWrapExpression(node) ) {
             append(' ');
+            visitStatementLabels(es);
             visit(es.getExpression());
             append(" }");
         }
@@ -492,11 +500,11 @@ public class Formatter extends CodeVisitorSupport {
     public void visitParameters(Parameter[] parameters) {
         for( int i = 0; i < parameters.length; i++ ) {
             var param = parameters[i];
-            if( isLegacyType(param.getType()) ) {
-                visitTypeAnnotation(param.getType());
-                append(' ');
-            }
             append(param.getName());
+            if( hasType(param) ) {
+                append(": ");
+                visitTypeAnnotation(param.getType());
+            }
             if( param.hasInitialExpression() ) {
                 append(" = ");
                 visit(param.getInitialExpression());
@@ -641,21 +649,19 @@ public class Formatter extends CodeVisitorSupport {
     }
 
     public void visitTypeAnnotation(ClassNode type) {
-        if( isLegacyType(type) ) {
+        if( isLegacyType(type) )
             append(type.getNodeMetaData(ASTNodeMarker.LEGACY_TYPE));
-            return;
-        }
-
-        append(nextflow.script.types.Types.getName(type));
+        else
+            append(nextflow.script.types.Types.getName(type));
     }
 
     @Override
     public void visitVariableExpression(VariableExpression node) {
-        if( inVariableDeclaration && isLegacyType(node.getType()) ) {
-            visitTypeAnnotation(node.getType());
-            append(' ');
-        }
         append(node.getText());
+        if( inVariableDeclaration && hasType(node) ) {
+            append(": ");
+            visitTypeAnnotation(node.getType());
+        }
     }
 
     @Override
@@ -703,6 +709,14 @@ public class Formatter extends CodeVisitorSupport {
 
     private static boolean hasTrailingComma(Expression node) {
         return node.getNodeMetaData(ASTNodeMarker.TRAILING_COMMA) != null;
+    }
+
+    public static boolean hasType(ClassNode type) {
+        return !ClassHelper.isDynamicTyped(type) || isLegacyType(type);
+    }
+
+    public static boolean hasType(Variable variable) {
+        return !variable.isDynamicTyped() || isLegacyType(variable.getType());
     }
 
     public static boolean isLegacyType(ClassNode cn) {

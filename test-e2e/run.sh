@@ -19,8 +19,8 @@
 rm -rf .nextflow && mkdir .nextflow
 # copy nextflow dependencies
 (cd ..
-./gradlew compile assemble
-BUILD_PACK=1 ./gradlew installScratch publishToMavenLocal
+export NXF_PLUGINS_DIR=$PWD/build/plugins
+make releaseInfo assemble installScratch
 )
 
 # copy nextflow plugins
@@ -40,8 +40,12 @@ if [ -z "$commitId" ]; then
     echo "Error: commitId is empty or missing"; exit 1
 fi
 
+echo "version  : $version"
+echo "build    : $build"
+echo "commit id: $commitId"
+
 #
-# build a scratch container image with assembled newxtflow runtime and plugins
+# build a scratch container image with assembled nextflow runtime and plugins
 #
 tag=${version}-${commitId}
 base=${base:-'public.cr.seqera.io/platform/nf-launcher:j17-base'}

@@ -16,7 +16,6 @@
 
 package nextflow.config
 
-import nextflow.SysEnv
 import org.junit.Rule
 import spock.lang.Specification
 import test.OutputCapture
@@ -29,17 +28,9 @@ class ConfigValidatorTest extends Specification {
     @Rule
     OutputCapture capture = new OutputCapture()
 
-    def setupSpec() {
-        SysEnv.push(NXF_SYNTAX_PARSER: 'v2')
-    }
-
-    def cleanupSpec() {
-        SysEnv.pop()
-    }
-
     def 'should warn about invalid config options' () {
-        given:
-        def config = new ConfigMap([
+        when:
+        new ConfigValidator().validate([
             wokDir: 'work',
             workDir: 'work',
             process: [
@@ -47,9 +38,6 @@ class ConfigValidatorTest extends Specification {
                 cpus: 2
             ]
         ])
-
-        when:
-        new ConfigValidator().validate(config)
         then:
         capture.toString().contains('Unrecognized config option \'wokDir\'')
         capture.toString().contains('Unrecognized config option \'process.cpu\'')
@@ -57,20 +45,107 @@ class ConfigValidatorTest extends Specification {
         !capture.toString().contains('Unrecognized config option \'process.cpus\'')
     }
 
+    def 'should validate config options in profiles' () {
+        when:
+        new ConfigValidator().validate([
+            profiles: [
+                test: [
+                    workDir: 'work',
+                    process: [
+                        cpus: 2
+                    ]
+                ]
+            ]
+        ])
+        then:
+        !capture.toString().contains('Unrecognized config option')
+
+        when:
+        new ConfigValidator().validate([
+            profiles: [
+                test: [
+                    wokDir2: 'work',
+                    process: [
+                        cpu2: 2
+                    ]
+                ]
+            ]
+        ])
+        then:
+        capture.toString().contains('Unrecognized config option \'wokDir2\'')
+        capture.toString().contains('Unrecognized config option \'process.cpu2\'')
+    }
+
     def 'should warn about invalid env config options' () {
         when:
-        new ConfigValidator().validate(new ConfigMap([
+        new ConfigValidator().validate([
             env: [
                 FOO: '/something',
                 NXF_ANSI_SUMMARY: 'true',
                 NXF_DEBUG: 'true'
             ]
-        ]))
+        ])
 
         then:
         capture.toString().contains('the following environment variable in the config will be ignored: \'NXF_ANSI_SUMMARY\'')
         !capture.toString().contains('the following environment variable in the config will be ignored: \'FOO\'')
         !capture.toString().contains('the following environment variable in the config will be ignored: \'NXF_DEBUG\'')
+    }
+
+    def 'should ignore process selectors' () {
+        when:
+        new ConfigValidator().validate([
+            process: [
+                'withLabel:foobar': [
+                    cpus: 2
+                ],
+                'withName:foobar': [
+                    cpus: 2
+                ],
+                "withName:'.*TASK.*'": [
+                    cpus: 2
+                ]
+            ]
+        ])
+        then:
+        !capture.toString().contains('Unrecognized config option')
+    }
+
+    def 'should support map options' () {
+        when:
+        new ConfigValidator().validate([
+            k8s: [
+                pod: [env: 'MESSAGE', value: 'hello world']
+            ]
+        ])
+        then:
+        !capture.toString().contains('Unrecognized config option')
+
+        when:
+        new ConfigValidator().validate([
+            process: [
+                publishDir: [
+                    path: { "results/foo" },
+                    mode: 'copy',
+                    saveAs: { filename -> filename }
+                ]
+            ]
+        ])
+        then:
+        !capture.toString().contains('Unrecognized config option')
+
+        when:
+        new ConfigValidator().validate([
+            process: [
+                resourceLimits: [
+                    cpus: 4,
+                    memory: '10GB',
+                    time: '1.h'
+                ]
+            ]
+        ])
+        then:
+        !capture.toString().contains('Unrecognized config option')
     }
 
 }

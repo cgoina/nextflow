@@ -18,8 +18,8 @@ package nextflow.config.parser.v2
 
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
-import java.nio.file.Paths
 
+import groovy.transform.CompileDynamic
 import groovy.transform.CompileStatic
 import groovy.transform.Memoized
 import groovy.util.logging.Slf4j
@@ -43,13 +43,19 @@ class ConfigDsl extends Script {
 
     private boolean strict
 
+    private boolean stripSecrets
+
     private Path configPath
+
+    private Map cliParams
 
     private List<String> profiles
 
-    private Map target = [:]
+    private Map target = [params: [:]]
 
-    private Set<String> parsedProfiles = []
+    private Set<String> declaredProfiles = []
+
+    private Map<String,Object> declaredParams = [:]
 
     void setIgnoreIncludes(boolean value) {
         this.ignoreIncludes = value
@@ -63,24 +69,41 @@ class ConfigDsl extends Script {
         this.strict = value
     }
 
+    void setStripSecrets(boolean value) {
+        this.stripSecrets = value
+    }
+
     void setConfigPath(Path path) {
         this.configPath = path
     }
 
     void setParams(Map params) {
-        target.params = params
+        this.cliParams = params
+        (target.params as Map).putAll(params)
+    }
+
+    void setConfigParams(Map params) {
+        (target.params as Map).putAll(params)
     }
 
     void setProfiles(List<String> profiles) {
         this.profiles = profiles
     }
 
-    void addParsedProfile(String profile) {
-        parsedProfiles.add(profile)
+    void declareProfile(String profile) {
+        declaredProfiles.add(profile)
     }
 
-    Set<String> getParsedProfiles() {
-        return parsedProfiles
+    Set<String> getDeclaredProfiles() {
+        return declaredProfiles
+    }
+
+    void declareParam(String name, Object value) {
+        declaredParams.put(name, value)
+    }
+
+    Map<String,Object> getDeclaredParams() {
+        return declaredParams
     }
 
     Map getTarget() {
@@ -105,8 +128,13 @@ class ConfigDsl extends Script {
         }
     }
 
-    void assign(List<String> names, Object right) {
-        navigate(names.init()).put(names.last(), right)
+    void assign(List<String> names, Object value) {
+        if( names.size() == 2 && names.first() == 'params' ) {
+            declareParam(names.last(), value)
+            if( cliParams.containsKey(names.last()) )
+                return
+        }
+        navigate(names.init()).put(names.last(), value)
     }
 
     private Map navigate(List<String> names) {
@@ -135,7 +163,11 @@ class ConfigDsl extends Script {
         if( names.size() == 1 && names.first() == 'plugins' )
             return new PluginsDsl(this)
 
-        if( names.size() == 1 && names.first() == 'process' )
+        final relativeNames = names.size() == 3 && names.first() == 'profiles'
+            ? List.of(names.last())
+            : names
+
+        if( relativeNames.size() == 1 && relativeNames.last() == 'process' )
             return new ProcessDsl(this, names)
 
         if( names.size() == 1 && names.first() == 'profiles' )
@@ -174,11 +206,14 @@ class ConfigDsl extends Script {
                 .setIgnoreIncludes(ignoreIncludes)
                 .setRenderClosureAsString(renderClosureAsString)
                 .setStrict(strict)
+                .setStripSecrets(stripSecrets)
                 .setBinding(binding.getVariables())
-                .setParams(target.params as Map)
+                .setParams(cliParams)
+                .setConfigParams(target.params as Map)
                 .setProfiles(profiles)
         final config = parser.parse(configText, includePath)
-        parsedProfiles.addAll(parser.getProfiles())
+        declaredProfiles.addAll(parser.getDeclaredProfiles())
+        declaredParams.putAll(parser.getDeclaredParams())
 
         final ctx = navigate(names)
         ctx.putAll(Bolts.deepMerge(ctx, config))
@@ -191,6 +226,7 @@ class ConfigDsl extends Script {
      * @param includePath
      */
     @Memoized
+    @CompileDynamic // required to support ProviderPath::getText() over NioExtensions::getText()
     protected static String readConfigFile(Path includePath) {
         try {
             return includePath.getText()
@@ -281,7 +317,7 @@ class ConfigDsl extends Script {
         @Override
         void block(String name, Closure closure) {
             blocks[name] = closure
-            dsl.addParsedProfile(name)
+            dsl.declareProfile(name)
         }
 
         @Override

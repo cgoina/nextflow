@@ -2,7 +2,9 @@
 
 # VS Code integration
 
-The [Nextflow VS Code extension](https://marketplace.visualstudio.com/items?itemName=nextflow.nextflow) provides IDE support for Nextflow pipelines.
+The [Nextflow VS Code extension](https://marketplace.visualstudio.com/items?itemName=nextflow.nextflow) provides language support for Nextflow pipelines in [VS Code](https://code.visualstudio.com/).
+
+This page describes the [Nextflow language server](https://github.com/nextflow-io/language-server) used by the extension. See the extension README in [GitHub](https://github.com/nextflow-io/vscode-language-nextflow) or the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=nextflow.nextflow) for details on additional extension features.
 
 ## Features
 
@@ -17,12 +19,30 @@ The extension highlights source code in red for errors and yellow for warnings.
 To view all diagnostics for the workspace, open the **Problems** tab. Here, you can search for diagnostics by diagnostic message, filename, and so on.
 
 :::{note}
-The language server parses scripts and config files according to the {ref}`Nextflow language specification <syntax-page>`, which is more strict than the Nextflow CLI. See {ref}`updating-syntax-page` for more information.
+The language server parses scripts and config files according to the {ref}`Nextflow language specification <syntax-page>`, which is more strict than the Nextflow CLI. See {ref}`strict-syntax-page` for more information.
 :::
+
+:::{versionadded} 25.10.0
+:::
+
+The extension can perform static type checking. Enable it using the **Nextflow > Type Checking** extension setting. See {ref}`migrating-static-types` for more information about migrating to static types.
 
 ### Hover hints
 
 When you hover over certain source code elements, such as variable names and function calls, the extension provides a tooltip with related information, such as the definition and/or documentation for the element.
+
+If a [Javadoc](https://en.wikipedia.org/wiki/Javadoc) comment is defined above a workflow, process, function, or parameter in a `params` block, the extension will include the contents of the comment in hover hints. The following is an example Javadoc comment:
+
+```nextflow
+/**
+ * Say hello to someone.
+ *
+ * @param name
+ */
+def sayHello(name) {
+    println "Hello, ${name}!"
+}
+```
 
 ### Code navigation
 
@@ -36,7 +56,7 @@ The extension suggests auto-completions for variable names, function names, conf
 
 ### Formatting
 
-The extension can format your scripts and config files based on a standard set of formatting rules. Rules can be customized using the **Nextflow > Formatting** [extension settings](#settings).
+The extension can format your scripts and config files based on a standard set of formatting rules. Rules can be customized using the **Nextflow > Formatting** extension settings.
 
 Use the **Format Document** command in the command palette to format the current file.
 
@@ -54,58 +74,53 @@ If a `nextflow_schema.json` file exists in the same directory as a script with a
 
 The extension can generate a workflow DAG that includes the workflow inputs, outputs, and any processes or workflows that are called by the selected workflow. The workflow DAG is displayed in a new panel to the side.
 
+The DAG preview is similar to the {ref}`workflow diagram <workflow-diagram>` that can be generated at runtime using the `-with-dag` option. However, it is different in several ways:
+
+- The DAG preview does not require executing Nextflow code.
+
+- The DAG preview shows only a single workflow, whereas the workflow diagram shows the entire pipeline.
+
+- The DAG preview shows all conditional processes, whereas the workflow diagram shows only the processes that were called in a specific run.
+
 To preview the DAG of a workflow, select the **Preview DAG** CodeLens above the workflow definition.
 
-:::{note}
-The **Preview DAG** CodeLens is only available when the script does not contain any errors.
-:::
+### Automatic code migration
+
+The extension can automatically migrate scripts to static types. See {ref}`migrating-static-types` for details.
+
+To migrate a script, open the Command Palette, search for **Convert script to static types**, and select it.
+
+To migrate an entire pipeline, use the **Convert pipeline to static types** command.
 
 ## Troubleshooting
 
-In the event of an error, you can stop or restart the language server from the command palette. See [Commands](#commands) for the set of available commands.
+In the event of a language server error, you can use the **Nextflow: Restart language server** command in the command palette to restart the language server.
 
-Report issues at [nextflow-io/vscode-language-nextflow](https://github.com/nextflow-io/vscode-language-nextflow) or [nextflow-io/language-server](https://github.com/nextflow-io/language-server). When reporting, include a minimal code snippet that reproduces the issue and any error logs from the server. To view logs, open the **Output** tab and select **Nextflow Language Server** from the dropdown. Enable **Nextflow > Debug** in the [extension settings](#settings) to show additional log messages while debugging.
+Report issues at [nextflow-io/vscode-language-nextflow](https://github.com/nextflow-io/vscode-language-nextflow) or [nextflow-io/language-server](https://github.com/nextflow-io/language-server). When reporting, include a minimal code snippet that reproduces the issue and any error logs from the server. To view logs, open the **Output** tab and select **Nextflow Language Server** from the dropdown. Enable **Nextflow > Debug** in the extension settings to show additional log messages while debugging.
 
 ## Limitations
 
-- The language server does not detect certain filesystem changes, such as changing the current Git branch. Restart the language server from the command palette to sync it with your workspace.
+<h3>Git filesystem changes</h3>
 
-- The language server does not recognize configuration options from third-party plugins and will report "Unrecognized config option" warnings for them.
+The language server does not detect certain filesystem changes, such as changing the current Git branch. Restart the language server from the command palette to sync it with your workspace.
 
-- The language server provides limited support for Groovy scripts in the `lib` directory. Errors in Groovy scripts are not reported as diagnostics, and changing a Groovy script does not automatically re-compile the Nextflow scripts that reference it. Edit the Nextflow script or close and re-open it to refresh the diagnostics.
+<h3>Plugin definitions</h3>
 
-## Commands
+The language server does not recognize configuration options from third-party plugins and will report "Unrecognized config option" warnings for them.
 
-The following commands are available from the command palette:
+:::{versionadded} 25.10.0
+:::
 
-- Restart language server
-- Stop language server
+The language server can recognize plugin definitions, including configuration options and functions, for plugins that use the {ref}`Nextflow Gradle plugin <gradle-plugin-page>` and require Nextflow >=25.10. Custom factories and operators are not currently recognized.
 
-(vscode-settings)=
+<h3>The <code>lib</code> directory</h3>
 
-## Settings
-
-The following settings are available:
-
-`nextflow.debug`
-: Enable debug logging and debug information in hover hints.
-
-`nextflow.files.exclude`
-: Configure glob patterns for excluding folders from being searched for Nextflow scripts and configuration files.
-
-`nextflow.formatting.harshilAlignment`
-: Use the [Harshil Alignment™️](https://nf-co.re/docs/contributing/code_editors_and_styling/harshil_alignment) when formatting Nextflow scripts and config files.
-
-`nextflow.java.home`
-: Specifies the folder path to the JDK. Use this setting if the extension cannot find Java automatically.
-
-`nextflow.paranoidWarnings`
-: Enable additional warnings for future deprecations, potential problems, and other discouraged patterns.
+The language server provides limited support for Groovy scripts in the `lib` directory. Errors in Groovy scripts are not reported as diagnostics, and changing a Groovy script does not automatically re-compile the Nextflow scripts that reference it. Edit the Nextflow script or close and re-open it to refresh the diagnostics.
 
 (vscode-language-server)=
 
 ## Language server
 
-Most of the functionality of the VS Code extension is provided by the [Nextflow language server](https://github.com/nextflow-io/language-server), which implements the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/) for Nextflow scripts and config files.
+The Nextflow language server implements the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/) for Nextflow scripts and config files. It is distributed as a standalone Java application and can be integrated with any editor that functions as an LSP client.
 
-The language server is distributed as a standalone Java application. It can be integrated with any editor that functions as an LSP client. Currently, only the VS Code integration is officially supported, but community contributions for other editors are welcome.
+Currently, only the VS Code integration is officially supported, but community contributions for other editors are welcome. Visit the [GitHub issues](https://github.com/nextflow-io/language-server/issues) page for the latest updates on community-led integrations.

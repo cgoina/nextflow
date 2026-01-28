@@ -24,6 +24,7 @@ import com.beust.jcommander.Parameters
 import groovy.transform.CompileStatic
 import groovy.transform.PackageScope
 import groovy.util.logging.Slf4j
+import nextflow.NF
 import nextflow.config.ConfigBuilder
 import nextflow.config.ConfigValidator
 import nextflow.exception.AbortOperationException
@@ -46,6 +47,9 @@ class CmdConfig extends CmdBase {
 
     @Parameter(description = 'project name')
     List<String> args = []
+
+    @Parameter(names=['-r','-revision'], description = 'Revision of the project (either a git branch, tag or commit SHA number)')
+    String revision
 
     @Parameter(names=['-a','-show-profiles'], description = 'Show all configuration profiles')
     boolean showAllProfiles
@@ -117,7 +121,10 @@ class CmdConfig extends CmdBase {
         final config = builder.buildConfigObject()
 
         // -- validate config options
-        new ConfigValidator().validate(config)
+        if( NF.isSyntaxParserV2() ) {
+            Plugins.load(config)
+            new ConfigValidator().validate(config)
+        }
 
         // -- print config options
         if( printValue ) {
@@ -226,7 +233,11 @@ class CmdConfig extends CmdBase {
             return file.parent ?: Paths.get('/')
         }
 
-        final manager = new AssetManager(path)
+        final manager = new AssetManager(path, revision)
+        if( revision && manager.isUsingLegacyStrategy() ){
+            log.warn("The local asset for ${path} does not support multi-revision - 'revision' option is ignored\n" +
+                "Consider updating the project using 'nextflow pull ${path} -r $revision -migrate'")
+        }
         manager.isLocal() ? manager.localPath.toPath() : manager.configFile?.parent
 
     }

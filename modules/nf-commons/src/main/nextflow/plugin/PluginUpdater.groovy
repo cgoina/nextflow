@@ -89,7 +89,11 @@ class PluginUpdater extends UpdateManager {
             result.add(new LocalUpdateRepository('downloaded', local))
         }
         else {
-            result.add(new DefaultUpdateRepository('nextflow.io', remote))
+            def remoteRepo = remote.path.endsWith('.json')
+                ? new DefaultUpdateRepository('nextflow.io', remote)
+                : new HttpPluginRepository('registry', remote.toURI())
+
+            result.add(remoteRepo)
             result.addAll(customRepos())
         }
         return result
@@ -139,6 +143,20 @@ class PluginUpdater extends UpdateManager {
     }
 
     /**
+     * Prefetch metadata for plugins. This gives an opportunity for certain
+     * repository types to perform some data-loading optimisations.
+     */
+    void prefetchMetadata(List<PluginRef> plugins) {
+        // use direct field access to avoid the refresh() call in getRepositories()
+        // which could fail anything which hasn't had a chance to prefetch yet
+        for( def repo : this.@repositories ) {
+            if( repo instanceof PrefetchUpdateRepository ) {
+                repo.prefetch(plugins)
+            }
+        }
+    }
+
+    /**
      * Resolve a plugin installing or updating the dependencies if necessary
      * and start the plugin
      *
@@ -167,8 +185,9 @@ class PluginUpdater extends UpdateManager {
     void pullPlugins(List<String> plugins) {
         pullOnly=true
         try {
-            final specs = plugins.collect(it -> PluginSpec.parse(it,defaultPlugins))
-            for( PluginSpec spec : specs ) {
+            final specs = plugins.collect(it -> PluginRef.parse(it,defaultPlugins))
+            prefetchMetadata(specs)
+            for( PluginRef spec : specs ) {
                 pullPlugin0(spec.id, spec.version)
             }
         }
@@ -227,7 +246,6 @@ class PluginUpdater extends UpdateManager {
 
         // 4. move the final destination the plugin directory
         assert pluginPath.getFileName() == dir.getFileName()
-
         try {
             safeMove(dir, pluginPath)
         }

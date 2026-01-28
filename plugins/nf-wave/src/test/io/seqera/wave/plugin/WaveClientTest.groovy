@@ -19,13 +19,13 @@ package io.seqera.wave.plugin
 
 import static java.nio.file.StandardOpenOption.*
 
-import java.net.http.HttpRequest
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpHandler
@@ -33,6 +33,7 @@ import com.sun.net.httpserver.HttpServer
 import groovy.json.JsonOutput
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
+import io.seqera.wave.api.BuildCompression
 import io.seqera.wave.api.BuildStatusResponse
 import io.seqera.wave.api.ContainerStatus
 import io.seqera.wave.api.ContainerStatusResponse
@@ -204,7 +205,6 @@ class WaveClientTest extends Specification {
         req.containerImage == IMAGE
         !req.containerPlatform
         !req.containerFile
-        !req.condaFile
         !req.containerConfig.layers
         !req.freeze
         !req.dryRun
@@ -225,7 +225,6 @@ class WaveClientTest extends Specification {
         req.containerImage == IMAGE
         !req.containerPlatform
         !req.containerFile
-        !req.condaFile
         !req.containerConfig.layers
         !req.mirror
         and:
@@ -247,7 +246,6 @@ class WaveClientTest extends Specification {
         req.containerImage == IMAGE
         !req.containerPlatform
         !req.containerFile
-        !req.condaFile
         !req.containerConfig.layers
         !req.freeze
         and:
@@ -270,11 +268,30 @@ class WaveClientTest extends Specification {
         req.containerImage == IMAGE
         !req.containerPlatform
         !req.containerFile
-        !req.condaFile
         !req.containerConfig.layers
         and:
         req.scanMode == ScanMode.required
         req.scanLevels == List.of(ScanLevel.LOW, ScanLevel.MEDIUM)
+        and:
+        req.fingerprint == 'bd2cb4b32df41f2d290ce2366609f2ad'
+        req.timestamp instanceof String
+    }
+
+    def 'should create request object with build compression' () {
+        given:
+        def session = Mock(Session) { getConfig() >> [wave:[build:[compression:[mode:'estargz', level:11]]]]}
+        def IMAGE =  'foo:latest'
+        def wave = new WaveClient(session)
+
+        when:
+        def req = wave.makeRequest(WaveAssets.fromImage(IMAGE))
+        then:
+        req.containerImage == IMAGE
+        !req.containerPlatform
+        !req.containerFile
+        !req.containerConfig.layers
+        and:
+        req.buildCompression == new BuildCompression().withMode(BuildCompression.Mode.estargz).withLevel(11)
         and:
         req.fingerprint == 'bd2cb4b32df41f2d290ce2366609f2ad'
         req.timestamp instanceof String
@@ -293,7 +310,6 @@ class WaveClientTest extends Specification {
         req.containerImage == IMAGE
         !req.containerPlatform
         !req.containerFile
-        !req.condaFile
         !req.containerConfig.layers
         and:
         req.dryRun
@@ -319,7 +335,6 @@ class WaveClientTest extends Specification {
         req.containerPlatform == PLATFORM
         and:
         !req.containerFile
-        !req.condaFile
         !req.containerConfig.layers
         and:
         req.fingerprint == 'd31044e6594126479585c0cdca15c15e'
@@ -337,7 +352,6 @@ class WaveClientTest extends Specification {
         then:
         !req.containerImage
         new String(req.containerFile.decodeBase64()) == DOCKERFILE
-        !req.condaFile
         !req.containerConfig.layers
     }
 
@@ -360,7 +374,6 @@ class WaveClientTest extends Specification {
         then:
         !req.containerImage
         new String(req.containerFile.decodeBase64()) == SINGULARITY_FILE
-        !req.condaFile
         !req.containerConfig.layers
         and:
         req.format == 'sif'
@@ -379,7 +392,6 @@ class WaveClientTest extends Specification {
         req.cacheRepository == 'some/cache'
         !req.containerImage
         new String(req.containerFile.decodeBase64()) == DOCKERFILE
-        !req.condaFile
         !req.containerConfig.layers
     }
 
@@ -399,7 +411,6 @@ class WaveClientTest extends Specification {
         then:
         !req.containerImage
         !req.containerFile
-        !req.condaFile
         !req.containerConfig.layers
         and:
         req.packages == SPEC
@@ -947,7 +958,7 @@ class WaveClientTest extends Specification {
     @Unroll
     def 'should get fusion default url' () {
         given:
-        def sess = Mock(Session) {getConfig() >> [:] }
+        def sess = Mock(Session) {getConfig() >> [fusion:[snapshots:SNAP]] }
         and:
         def wave = Spy(new WaveClient(sess))
 
@@ -955,12 +966,15 @@ class WaveClientTest extends Specification {
         wave.defaultFusionUrl(ARCH).toURI().toString() == EXPECTED
         
         where:
-        ARCH                | EXPECTED
-        'linux/amd64'       | 'https://fusionfs.seqera.io/releases/v2.5-amd64.json'
-        'linux/x86_64'      | 'https://fusionfs.seqera.io/releases/v2.5-amd64.json'
-        'arm64'             | 'https://fusionfs.seqera.io/releases/v2.5-arm64.json'
-        'linux/arm64'       | 'https://fusionfs.seqera.io/releases/v2.5-arm64.json'
-        'linux/arm64/v8'    | 'https://fusionfs.seqera.io/releases/v2.5-arm64.json'
+        ARCH                | SNAP  | EXPECTED
+        'linux/amd64'       | null  | 'https://fusionfs.seqera.io/releases/v2.5-amd64.json'
+        'linux/x86_64'      | null  | 'https://fusionfs.seqera.io/releases/v2.5-amd64.json'
+        'arm64'             | null  | 'https://fusionfs.seqera.io/releases/v2.5-arm64.json'
+        'linux/arm64'       | null  | 'https://fusionfs.seqera.io/releases/v2.5-arm64.json'
+        'linux/arm64/v8'    | null  | 'https://fusionfs.seqera.io/releases/v2.5-arm64.json'
+        and:
+        'linux/amd64'       | true  | 'https://fusionfs.seqera.io/releases/v2.5-snap_amd64.json'
+        'linux/arm64'       | true  | 'https://fusionfs.seqera.io/releases/v2.5-snap_arm64.json'
     }
 
     @Unroll
@@ -1017,46 +1031,6 @@ class WaveClientTest extends Specification {
         'foo\nbar.yml'      | false
         'http://foo.com'    | true
         'https://foo.com'   | true
-    }
-
-    def 'should retry http request' () {
-
-        given:
-        int requestCount=0
-        HttpHandler handler = { HttpExchange exchange ->
-            if( ++requestCount<3 ) {
-                exchange.getResponseHeaders().add("Content-Type", "text/plain")
-                exchange.sendResponseHeaders(503, 0)
-                exchange.getResponseBody().close()
-            }
-            else {
-                def body = 'Hello world!'
-                exchange.getResponseHeaders().add("Content-Type", "text/plain")
-                exchange.sendResponseHeaders(200, body.size())
-                exchange.getResponseBody().write(body.bytes)
-                exchange.getResponseBody().close()
-            }
-        }
-
-        HttpServer server = HttpServer.create(new InetSocketAddress(9901), 0);
-        server.createContext("/", handler);
-        server.start()
-
-        def session = Mock(Session) {getConfig() >> [:] }
-        def client = new WaveClient(session)
-
-        when:
-        def request = HttpRequest.newBuilder().uri(new URI('http://localhost:9901/foo.txt')).build()
-        def response = client.httpSend(request)
-        then:
-        response.statusCode() == 200
-        response.body() == 'Hello world!'
-        and:
-        requestCount == 3
-        
-        cleanup:
-        server?.stop(0)
-
     }
 
     def 'should deserialize build status' () {
@@ -1390,7 +1364,7 @@ class WaveClientTest extends Specification {
         and:
         result == new ContainerMeta(
                 requestId: resp.requestId,
-                requestTime: handle.createdAt,
+                requestTime: handle.createdAt.atZone(ZoneId.systemDefault()).toOffsetDateTime(),
                 sourceImage: resp.containerImage,
                 targetImage: resp.targetImage,
                 buildId: resp.buildId,
@@ -1426,7 +1400,7 @@ class WaveClientTest extends Specification {
         and:
         result == new ContainerMeta(
             requestId: resp.requestId,
-            requestTime: handle.createdAt,
+            requestTime: handle.createdAt.atZone(ZoneId.systemDefault()).toOffsetDateTime(),
             sourceImage: resp.containerImage,
             targetImage: resp.targetImage,
             buildId: null,
@@ -1434,6 +1408,49 @@ class WaveClientTest extends Specification {
             scanId: resp.scanId,
             freeze: resp.freeze,
             cached: resp.cached )
+    }
+
+    def 'should fetch container config without bearer token' () {
+        given: 'a server that rejects requests with Authorization header (like S3)'
+        def configJson = JsonOutput.toJson(new ContainerConfig(entrypoint: ['test.sh']))
+        HttpHandler handler = { HttpExchange exchange ->
+            // Check if Authorization header is present (like S3 would reject Bearer tokens)
+            def authHeader = exchange.requestHeaders.getFirst('Authorization')
+            if( authHeader ) {
+                // S3 returns 400 for unsupported auth types
+                def errorMsg = "Unsupported Authorization Type: ${authHeader}"
+                exchange.sendResponseHeaders(400, errorMsg.size())
+                exchange.getResponseBody() << errorMsg
+                exchange.getResponseBody().close()
+            }
+            else {
+                exchange.getResponseHeaders().add("Content-Type", "application/json")
+                exchange.sendResponseHeaders(200, configJson.size())
+                exchange.getResponseBody() << configJson
+                exchange.getResponseBody().close()
+            }
+        }
+
+        HttpServer server = HttpServer.create(new InetSocketAddress(9902), 0)
+        server.createContext("/", handler)
+        server.start()
+
+        and: 'a wave client configured with tower access token'
+        def config = [
+            wave: [containerConfigUrl: 'http://localhost:9902/config.json'],
+            tower: [accessToken: 'test-jwt-token', endpoint: 'https://tower.nf']
+        ]
+        def session = Mock(Session) { getConfig() >> config }
+        def client = new WaveClient(session)
+
+        when: 'fetching container config from URL that rejects Bearer tokens'
+        def result = client.resolveContainerConfig()
+
+        then: 'request succeeds because no Bearer token was sent'
+        result.entrypoint == ['test.sh']
+
+        cleanup:
+        server?.stop(0)
     }
 
 }

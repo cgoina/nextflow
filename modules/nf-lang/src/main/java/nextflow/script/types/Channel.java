@@ -19,122 +19,23 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 import groovy.lang.Closure;
+import groovy.transform.NamedParam;
+import groovy.transform.NamedParams;
 import nextflow.script.dsl.Description;
 import nextflow.script.dsl.Operator;
 
 @Description("""
-    A `Channel` is an asynchronous collection that is produced by a process, operator, or channel factory.
+    A channel is an asynchronous sequence of values. It is used to facilitate dataflow logic in a workflow.
 
-    [Read more](https://nextflow.io/docs/latest/reference/channel.html)
+    [Read more](https://nextflow.io/docs/latest/reference/stdlib-types.html#channel-e)
 """)
-public abstract class Channel<E> {
-
-    protected static ChannelFactory instance;
-
-    @Description("""
-        Create a channel that emits nothing.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#empty)
-    """)
-    public static Channel empty() {
-        return instance.empty();
-    }
-
-    @Deprecated
-    @Description("""
-        Create a channel that emits each argument.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#from)
-    """)
-    public static <E> Channel<E> from(E... values) {
-        return instance.from(values);
-    }
-
-    @Deprecated
-    @Description("""
-        Create a channel that emits each element in a collection.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#from)
-    """)
-    public static <E> Channel<E> from(Collection<E> values) {
-        return instance.from(values);
-    }
-
-    @Description("""
-        Create a channel that emits all file pairs matching a glob pattern.
-
-        An optional closure can be used to customize the grouping strategy.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#fromfilepairs)
-    """)
-    public static Channel fromFilePairs(Map<String,?> opts, String pattern, Closure grouping) {
-        return instance.fromFilePairs(opts, pattern, grouping);
-    }
-
-    @Description("""
-        Create a channel that emits each element in a collection.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#fromlist)
-    """)
-    public static <E> Channel<E> fromList(Collection<E> values) {
-        return instance.fromList(values);
-    }
-
-    @Description("""
-        Create a channel that emits all paths matching a name or glob pattern.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#frompath)
-    """)
-    public static Channel<Path> fromPath(Map<String,?> opts, String pattern) {
-        return instance.fromPath(opts, pattern);
-    }
-
-    @Description("""
-        Create a channel that queries the [NCBI SRA](https://www.ncbi.nlm.nih.gov/sra) database and emits all FASTQ files matching the given project or accession ids.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#fromsra)
-    """)
-    public static Channel fromSRA(Map<String,?> opts, String query) {
-        return instance.fromSRA(opts, query);
-    }
-
-    @Description("""
-        Create a channel that emits each argument.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#of)
-    """)
-    public static <E> Channel<E> of(E... values) {
-        return instance.of(values);
-    }
-
-    @Description("""
-        Create a channel that emits all values in the given topic.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#topic)
-    """)
-    public static Channel topic(String name) {
-        return instance.topic(name);
-    }
-
-    @Description("""
-        Create a value channel.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#value)
-    """)
-    public static <E> Channel<E> value(E value) {
-        return instance.value(value);
-    }
-
-    @Description("""
-        Create a channel that watches for filesystem events for all files matching the given pattern.
-
-        [Read more](https://nextflow.io/docs/latest/reference/channel.html#watchpath)
-    """)
-    public static Channel<Path> watchPath(String filePattern, String events) {
-        return instance.watchPath(filePattern, events);
-    }
+public interface Channel<E> {
 
     @Operator
     @Description("""
@@ -142,7 +43,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#branch)
     """)
-    public abstract Object branch(Closure action);
+    Record branch(Function<E,?> closure);
 
     @Operator
     @Description("""
@@ -150,7 +51,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#buffer)
     """)
-    public abstract Channel buffer(Closure openingCondition, Closure closingCondition);
+    Channel<?> buffer(Closure openingCondition, Closure closingCondition);
 
     @Operator
     @Description("""
@@ -158,7 +59,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#collate)
     """)
-    public abstract Channel collate(int size, int step, boolean remainder);
+    Channel<?> collate(int size, int step, boolean remainder);
 
     @Operator
     @Description("""
@@ -166,7 +67,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#collect)
     """)
-    public abstract Channel collect(Closure action);
+    Value<Bag<E>> collect();
 
     @Operator
     @Description("""
@@ -174,7 +75,8 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#collectfile)
     """)
-    public abstract Channel collectFile(Map<String,?> opts, Closure closure);
+    Channel<?> collectFile(Map<String,?> opts, Closure closure);
+    Channel<?> collectFile(Closure closure);
 
     @Operator
     @Description("""
@@ -182,7 +84,16 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#combine)
     """)
-    public abstract Channel combine(Map<String,?> opts, Object right);
+    Channel<Tuple> combine(
+        @NamedParams({
+            @NamedParam(value = "by")
+        })
+        Map<String,?> opts,
+        Channel<?> right
+    );
+    Channel<Tuple> combine(Channel<?> right);
+    Channel<Tuple> combine(Value<?> right);
+    Channel<Tuple> combine(Collection right);
 
     @Operator
     @Description("""
@@ -190,7 +101,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#concat)
     """)
-    public abstract Channel concat(Channel... others);
+    Channel<E> concat(Channel... others);
 
     @Operator
     @Description("""
@@ -198,7 +109,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#count)
     """)
-    public abstract Channel count();
+    Value<Integer> count();
 
     @Operator
     @Description("""
@@ -206,7 +117,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#cross)
     """)
-    public abstract Channel cross(Channel right, Closure mapper);
+    Channel<Tuple> cross(Channel<?> right);
 
     @Operator
     @Description("""
@@ -214,7 +125,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#distinct)
     """)
-    public abstract Channel distinct();
+    Channel<E> distinct();
 
     @Operator
     @Description("""
@@ -222,7 +133,8 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#dump)
     """)
-    public abstract Channel dump(Map<String,?> opts);
+    Channel<E> dump(Map<String,?> opts);
+    Channel<E> dump();
 
     @Operator
     @Description("""
@@ -230,7 +142,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#filter)
     """)
-    public abstract Channel filter(Closure<Boolean> closure);
+    Channel<E> filter(Predicate<E> condition);
 
     @Operator
     @Description("""
@@ -238,7 +150,8 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#first)
     """)
-    public abstract Channel first(Object criteria);
+    Value<E> first(Predicate<E> criteria);
+    Value<E> first();
 
     @Operator
     @Description("""
@@ -248,7 +161,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#flatmap)
     """)
-    public abstract Channel flatMap(Closure closure);
+    <R> Channel<R> flatMap(Function<E,Iterable<R>> transform);
 
     @Operator
     @Description("""
@@ -256,7 +169,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#flatten)
     """)
-    public abstract Channel flatten();
+    Channel<?> flatten();
 
     @Operator
     @Description("""
@@ -264,7 +177,16 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#grouptuple)
     """)
-    public abstract Channel groupTuple(Map<String,?> opts);
+    Channel<Tuple> groupTuple(
+        @NamedParams({
+            @NamedParam(value = "by"),
+            @NamedParam(value = "remainder", type = Boolean.class),
+            @NamedParam(value = "size", type = Integer.class),
+            @NamedParam(value = "sort")
+        })
+        Map<String,?> opts
+    );
+    Channel<Tuple> groupTuple();
 
     @Operator
     @Description("""
@@ -272,7 +194,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#ifempty)
     """)
-    public abstract Channel ifEmpty(Object value);
+    Channel<?> ifEmpty(Object value);
 
     @Operator
     @Description("""
@@ -280,7 +202,17 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#join)
     """)
-    public abstract Channel join(Channel right);
+    Channel<Tuple> join(
+        @NamedParams({
+            @NamedParam(value = "by"),
+            @NamedParam(value = "failOnDuplicate", type = Boolean.class),
+            @NamedParam(value = "failOnMismatch", type = Boolean.class),
+            @NamedParam(value = "remainder", type = Boolean.class)
+        })
+        Map<String,?> opts,
+        Channel<Tuple> right
+    );
+    Channel<Tuple> join(Channel<Tuple> right);
 
     @Operator
     @Description("""
@@ -288,7 +220,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#last)
     """)
-    public abstract Channel last();
+    Value<E> last();
 
     @Operator
     @Description("""
@@ -296,7 +228,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#map)
     """)
-    public abstract Channel map(Closure closure);
+    <R> Channel<R> map(Function<E,R> transform);
 
     @Operator
     @Description("""
@@ -304,16 +236,15 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#max)
     """)
-    public abstract Channel max(Closure comparator);
+    Value<E> max(Closure comparator);
 
-    @Deprecated
     @Operator
     @Description("""
         The `merge` operator joins the values from two or more channels into a new channel.
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#merge)
     """)
-    public abstract Channel merge(Channel... others);
+    Channel<?> merge(Channel... others);
 
     @Operator
     @Description("""
@@ -321,7 +252,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#min)
     """)
-    public abstract Channel min(Closure comparator);
+    Value<E> min(Closure comparator);
 
     @Operator
     @Description("""
@@ -329,7 +260,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#mix)
     """)
-    public abstract Channel mix(Channel... others);
+    Channel<E> mix(Channel<E>... others);
 
     @Operator
     @Description("""
@@ -337,7 +268,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#multimap)
     """)
-    public abstract Object multiMap(Closure action);
+    Record multiMap(Function<E,?> closure);
 
     @Operator
     @Description("""
@@ -345,7 +276,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#randomsample)
     """)
-    public abstract Channel randomSample(int n, Long seed);
+    Channel<E> randomSample(int n, Long seed);
 
     @Operator
     @Description("""
@@ -353,7 +284,8 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#reduce)
     """)
-    public abstract Channel reduce(Object seed, Closure closure);
+    <R> Value<R> reduce(R seed, BiFunction<R,E,R> accumulator);
+    <R> Value<R> reduce(BiFunction<R,E,R> accumulator);
 
     @Operator
     @Description("""
@@ -361,7 +293,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#set)
     """)
-    public abstract void set(Closure holder);
+    void set(Closure holder);
 
     @Operator
     @Description("""
@@ -369,7 +301,8 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#splitcsv)
     """)
-    public abstract Channel splitCsv(Map<String,?> opts);
+    Channel<?> splitCsv(Map<String,?> opts);
+    Channel<?> splitCsv();
 
     @Operator
     @Description("""
@@ -377,7 +310,8 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#splitfasta)
     """)
-    public abstract Channel splitFasta(Map<String,?> opts);
+    Channel<?> splitFasta(Map<String,?> opts);
+    Channel<?> splitFasta();
 
     @Operator
     @Description("""
@@ -385,7 +319,17 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#splitfastq)
     """)
-    public abstract Channel splitFastq(Map<String,?> opts);
+    Channel<?> splitFastq(Map<String,?> opts);
+    Channel<?> splitFastq();
+
+    @Operator
+    @Description("""
+        The splitJson operator splits JSON files or text from a source channel into individual records.
+
+        [Read more](https://nextflow.io/docs/latest/reference/operator.html#splitjson)
+    """)
+    Channel<?> splitJson(Map<String,?> opts);
+    Channel<?> splitJson();
 
     @Operator
     @Description("""
@@ -393,7 +337,8 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#splittext)
     """)
-    public abstract Channel splitText(Map<String,?> opts, Closure action);
+    Channel<?> splitText(Map<String,?> opts);
+    Channel<?> splitText();
 
     @Operator
     @Description("""
@@ -401,7 +346,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#subscribe)
     """)
-    public abstract void subscribe(Closure closure);
+    void subscribe(Consumer<E> action);
 
     @Operator
     @Description("""
@@ -409,7 +354,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#sum)
     """)
-    public abstract Channel sum(Closure closure);
+    Value<?> sum(Closure transform);
 
     @Operator
     @Description("""
@@ -417,7 +362,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#take)
     """)
-    public abstract Channel take(int n);
+    Channel<E> take(int n);
 
     @Operator
     @Description("""
@@ -425,15 +370,15 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#tap)
     """)
-    public abstract Channel tap(Closure holder);
+    Channel<?> tap(Closure holder);
 
     @Operator
     @Description("""
         The `toList` operator collects all the values from a source channel into a list and emits the list as a single value.
 
-   public abstract      [Read more](https://nextflow.io/docs/latest/reference/operator.html#to;ist)
+        [Read more](https://nextflow.io/docs/latest/reference/operator.html#to;ist)
     """)
-    public abstract Channel toList();
+    Value<?> toList();
 
     @Operator
     @Description("""
@@ -441,7 +386,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#tosortedlist)
     """)
-    public abstract Channel toSortedList();
+    Value<?> toSortedList();
 
     @Operator
     @Description("""
@@ -449,7 +394,8 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#transpose)
     """)
-    public abstract Channel transpose(Map<String,?> opts);
+    Channel<?> transpose(Map<String,?> opts);
+    Channel<?> transpose();
 
     @Operator
     @Description("""
@@ -457,7 +403,8 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#unique)
     """)
-    public abstract Channel unique(Closure comparator);
+    Channel<E> unique(Closure comparator);
+    Channel<E> unique();
 
     @Operator
     @Description("""
@@ -465,7 +412,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#until)
     """)
-    public abstract Channel until(Closure<Boolean> closure);
+    Channel<E> until(Predicate<E> condition);
 
     @Operator
     @Description("""
@@ -473,6 +420,7 @@ public abstract class Channel<E> {
 
         [Read more](https://nextflow.io/docs/latest/reference/operator.html#view)
     """)
-    public abstract Channel view(Closure closure);
+    Channel<E> view(Function<E,String> transform);
+    Channel<E> view();
 
 }

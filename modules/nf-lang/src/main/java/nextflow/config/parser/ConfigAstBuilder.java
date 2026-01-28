@@ -238,7 +238,7 @@ public class ConfigAstBuilder {
             .toList();
         var result = ast( new ConfigApplyBlockNode(name, statements), ctx );
         if( !"plugins".equals(name) )
-            collectSyntaxError(new SyntaxException("Config directives (i.e. statements without `=`) are only allowed in the `plugins` scope", result));
+            collectSyntaxError(new SyntaxException("Config settings must be assigned with an equals sign (`=`)", result));
         return result;
     }
 
@@ -314,8 +314,9 @@ public class ConfigAstBuilder {
     private ConfigStatement configSelector(ConfigSelectorContext ctx) {
         var kind = ctx.kind.getText();
         var target = configPrimary(ctx.target);
-        var statements = ctx.configAssign().stream()
-            .map(this::configAssign)
+        var statements = ctx.configBlockStatement().stream()
+            .map(this::configBlockStatement)
+            .filter(stmt -> stmt != null)
             .toList();
         return new ConfigBlockNode(kind, target, statements);
     }
@@ -833,27 +834,33 @@ public class ConfigAstBuilder {
     }
 
     private Expression integerLiteral(IntegerLiteralAltContext ctx) {
+        var text = ctx.getText();
         Number num = null;
         try {
-            num = Numbers.parseInteger(ctx.getText());
+            num = Numbers.parseInteger(text);
         }
         catch( Exception e ) {
             numberFormatError = new Tuple2(ctx, e);
         }
 
-        return constX(num, true);
+        var result = constX(num, true);
+        result.putNodeMetaData(ASTNodeMarker.VERBATIM_TEXT, text);
+        return result;
     }
 
     private Expression floatingPointLiteral(FloatingPointLiteralAltContext ctx) {
+        var text = ctx.getText();
         Number num = null;
         try {
-            num = Numbers.parseDecimal(ctx.getText());
+            num = Numbers.parseDecimal(text);
         }
         catch( Exception e ) {
             numberFormatError = new Tuple2(ctx, e);
         }
 
-        return constX(num, true);
+        var result = constX(num, true);
+        result.putNodeMetaData(ASTNodeMarker.VERBATIM_TEXT, text);
+        return result;
     }
 
     private ConstantExpression string(ParserRuleContext ctx) {
@@ -1167,24 +1174,12 @@ public class ConfigAstBuilder {
     /// MISCELLANEOUS
 
     private Parameter[] formalParameterList(FormalParameterListContext ctx) {
-        // NOTE: implicit `it` parameter is deprecated, but allow it for now
         if( ctx == null )
             return Parameter.EMPTY_ARRAY;
 
-        var params = ctx.formalParameter().stream()
+        return ctx.formalParameter().stream()
             .map(this::formalParameter)
-            .toList();
-        for( int n = params.size(), i = n - 1; i >= 0; i -= 1 ) {
-            var param = params.get(i);
-            for( var other : params ) {
-                if( other == param )
-                    continue;
-                if( other.getName().equals(param.getName()) )
-                    throw createParsingFailedException("Duplicated parameter '" + param.getName() + "' found", param);
-            }
-        }
-
-        return params.toArray(Parameter.EMPTY_ARRAY);
+            .toArray(Parameter[]::new);
     }
 
     private Parameter formalParameter(FormalParameterContext ctx) {
@@ -1432,15 +1427,6 @@ public class ConfigAstBuilder {
             public void syntaxError(Recognizer recognizer, Object offendingSymbol, int line, int charPositionInLine, String msg, RecognitionException e) {
                 collectSyntaxError(new SyntaxException(msg, line, charPositionInLine + 1));
             }
-
-            @Override
-            public void reportAmbiguity(Parser recognizer, DFA dfa, int startIndex, int stopIndex, boolean exact, BitSet ambigAlts, ATNConfigSet configs) {}
-
-            @Override
-            public void reportAttemptingFullContext(Parser recognizer, DFA dfa, int startIndex, int stopIndex, BitSet conflictingAlts, ATNConfigSet configs) {}
-
-            @Override
-            public void reportContextSensitivity(Parser recognizer, DFA dfa, int startIndex, int stopIndex, int prediction, ATNConfigSet configs) {}
         };
     }
 

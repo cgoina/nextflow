@@ -22,7 +22,6 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 import com.github.tomakehurst.wiremock.junit.WireMockRule
-import com.github.tomjankes.wiremock.WireMockGroovy
 import com.sun.net.httpserver.BasicAuthenticator
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpExchange
@@ -35,6 +34,8 @@ import spock.lang.IgnoreIf
 import spock.lang.Specification
 import test.TestHelper
 
+import static com.github.tomakehurst.wiremock.client.WireMock.*
+
 /**
  *
  * @author Paolo Di Tommaso <paolo.ditommaso@gmail.com>
@@ -42,40 +43,32 @@ import test.TestHelper
 class HttpFilesTests extends Specification {
 
     @Rule
-    WireMockRule wireMockRule = new WireMockRule(18080)
+    WireMockRule wireMockRule = new WireMockRule(0)
 
     def 'should read http file from WireMock' () {
 
         given:
-        def wireMock = new WireMockGroovy(18080)
-        wireMock.stub {
-            request {
-                method "GET"
-                url "/index.html"
-            }
-            response {
-                status 200
-                body """a
+        def localhost = "http://localhost:${wireMockRule.port()}"
+        wireMockRule.stubFor(get(urlEqualTo("/index.html"))
+            .willReturn(aResponse()
+                .withStatus(200)
+                .withBody("""a
                  b
                  c
                  d
-                 """
-                headers {
-                    "Content-Type" "text/html"
-                    "Content-Length" "10"
-                    "Last-Modified" "Fri, 04 Nov 2016 21:50:34 GMT"
-                }
-            }
-        }
+                 """)
+                .withHeader("Content-Type", "text/html")
+                .withHeader("Content-Length", "10")
+                .withHeader("Last-Modified", "Fri, 04 Nov 2016 21:50:34 GMT")))
 
         when:
-        def path = Paths.get(new URI('http://localhost:18080/index.html'))
+        def path = Paths.get(new URI("${localhost}/index.html"))
         then:
         Files.size(path) == 10
         Files.getLastModifiedTime(path).toString() == "2016-11-04T21:50:34Z"
 
         when:
-        def path2 = Paths.get(new URI('http://localhost:18080/missing.html'))
+        def path2 = Paths.get(new URI("${localhost}missing.html"))
         then:
         !Files.exists(path2)
     }
@@ -207,25 +200,17 @@ class HttpFilesTests extends Specification {
 
     def 'should read with a newByteChannel' () {
         given:
-        def wireMock = new WireMockGroovy(18080)
-        wireMock.stub {
-            request {
-                method "GET"
-                url "/index.txt"
-            }
-            response {
-                status 200
-                body "01234567890123456789012345678901234567890123456789"
-                headers {
-                    "Content-Type" "text/html"
-                    "Content-Length" "50"
-                    "Last-Modified" "Fri, 04 Nov 2016 21:50:34 GMT"
-                }
-            }
-        }
+        def localhost = "http://localhost:${wireMockRule.port()}"
+        wireMockRule.stubFor(get(urlEqualTo("/index.txt"))
+            .willReturn(aResponse()
+                .withStatus(200)
+                .withBody("01234567890123456789012345678901234567890123456789")
+                .withHeader("Content-Type", "text/html")
+                .withHeader("Content-Length", "50")
+                .withHeader("Last-Modified", "Fri, 04 Nov 2016 21:50:34 GMT")))
 
         when:
-        def path = Paths.get(new URI('http://localhost:18080/index.txt'))
+        def path = Paths.get(new URI("${localhost}/index.txt"))
         def sbc = Files.newByteChannel(path)
         def buffer = new ByteArrayOutputStream()
         ByteBuffer bf = ByteBuffer.allocate(15)
