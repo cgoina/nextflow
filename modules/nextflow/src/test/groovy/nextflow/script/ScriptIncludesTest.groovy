@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018, Centre for Genomic Regulation (CRG)
+ * Copyright 2013-2026, Seqera Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -922,6 +922,75 @@ class ScriptIncludesTest extends Dsl2Spec {
         def result = runScript(SCRIPT)
         then:
         result == 'dlrow olleH'
+
+        cleanup:
+        folder?.deleteDir()
+    }
+
+    def 'should load current params in included module' () {
+        given:
+        def folder = Files.createTempDirectory('test')
+
+        folder.resolve('main.nf').text = '''
+            params.outdir = "results"
+
+            include { echoParams } from './module.nf'
+
+            workflow {
+                echoParams()
+            }
+            '''
+
+        folder.resolve('module.nf').text = '''
+            def echoParams() {
+                return params
+            }
+            '''
+
+        when:
+        def result = runScript(folder.resolve('main.nf'))
+        then:
+        result == [outdir: 'results']
+
+        cleanup:
+        folder?.deleteDir()
+    }
+
+    def 'should ignore params block from included modules' () {
+        given:
+        def folder = Files.createTempDirectory('test')
+
+        folder.resolve('main.nf').text = '''
+            include { test2 } from './module.nf'
+
+            params {
+                test1: String = "test"
+            }
+
+            workflow {
+                params
+            }
+            '''
+
+        folder.resolve('module.nf').text = '''
+
+            params {
+                test2: String = "test2"
+            }
+
+            def test2() {
+            }
+            '''
+
+        when:
+        def result = runScript(folder.resolve('main.nf'))
+        then:
+        result == [test1: 'test']
+
+        when:
+        result = runScript(folder.resolve('main.nf'), params: [test1: 'hello'])
+        then:
+        result == [test1: 'hello']
 
         cleanup:
         folder?.deleteDir()

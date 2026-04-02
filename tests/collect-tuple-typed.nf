@@ -9,7 +9,7 @@ process align {
   debug true
 
   input:
-  (barcode, seq_id): Tuple<String, String>
+  tuple(barcode: String, seq_id: String)
 
   output:
   tuple(barcode, seq_id, file('bam'), file('bai'))
@@ -29,18 +29,18 @@ process merge {
   debug true
 
   input:
-  (barcode, seq_ids, bam, bai): Tuple<String, Bag<String>, Bag<Path>, Bag<Path>>
+  tuple(barcode: String, seq_ids: Bag<String>, bam: Bag<Path>, bai: Bag<Path>)
 
   stage:
-  stageAs 'bam?', bam
-  stageAs 'bai?', bai
+  stageAs bam, 'bam?'
+  stageAs bai, 'bai?'
 
   script:
   """
   echo barcode: $barcode
-  echo seq_ids: $seq_ids
-  echo bam    : $bam
-  echo bai    : $bai
+  echo seq_ids: ${seq_ids.join(' ')}
+  echo bam    : ${bam.join(' ')}
+  echo bai    : ${bai.join(' ')}
   """
 }
 

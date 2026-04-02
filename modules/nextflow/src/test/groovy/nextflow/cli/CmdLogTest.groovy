@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2024, Seqera Labs
+ * Copyright 2013-2026, Seqera Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package nextflow.cli
 import java.nio.file.Files
 
+import nextflow.SysEnv
 import nextflow.cache.CacheDB
 import nextflow.cache.DefaultCacheStore
 import nextflow.executor.CachedTaskHandler
@@ -40,10 +41,15 @@ import static test.TestHelper.filterLogNoise
  */
 class CmdLogTest extends Specification {
 
+    def setup() {
+        SysEnv.push([:])
+    }
+
     def cleanup() {
         Plugins.stop()
+        SysEnv.pop()
     }
-    
+
     /*
      * Read more http://mrhaki.blogspot.com.es/2015/02/spocklight-capture-and-assert-system.html
      */

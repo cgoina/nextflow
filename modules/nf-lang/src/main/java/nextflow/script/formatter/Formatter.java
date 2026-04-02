@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025, Seqera Labs
+ * Copyright 2013-2026, Seqera Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -516,7 +516,7 @@ public class Formatter extends CodeVisitorSupport {
 
     @Override
     public void visitTupleExpression(TupleExpression node) {
-        var wrap = shouldWrapExpression(node);
+        var wrap = hasTrailingComma(node);
         append('(');
         if( wrap )
             incIndent();
@@ -531,7 +531,7 @@ public class Formatter extends CodeVisitorSupport {
 
     @Override
     public void visitListExpression(ListExpression node) {
-        var wrap = hasTrailingComma(node) || shouldWrapExpression(node);
+        var wrap = hasTrailingComma(node);
         append('[');
         if( wrap )
             incIndent();
@@ -564,7 +564,7 @@ public class Formatter extends CodeVisitorSupport {
             append("[:]");
             return;
         }
-        var wrap = hasTrailingComma(node) || shouldWrapExpression(node);
+        var wrap = hasTrailingComma(node);
         append('[');
         if( wrap )
             incIndent();

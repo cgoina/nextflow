@@ -1,5 +1,5 @@
 /*
- * Copyright 2024, Seqera Labs
+ * Copyright 2013-2026, Seqera Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package nextflow.script.control;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -28,12 +29,15 @@ import nextflow.script.ast.IncludeNode;
 import nextflow.script.ast.OutputBlockNode;
 import nextflow.script.ast.ParamBlockNode;
 import nextflow.script.ast.ParamNodeV1;
+import nextflow.script.ast.ProcessNode;
 import nextflow.script.ast.ProcessNodeV1;
 import nextflow.script.ast.ProcessNodeV2;
+import nextflow.script.ast.RecordNode;
 import nextflow.script.ast.ScriptNode;
 import nextflow.script.ast.ScriptVisitorSupport;
 import nextflow.script.ast.WorkflowNode;
 import org.codehaus.groovy.ast.ASTNode;
+import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.CodeVisitorSupport;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.Parameter;
@@ -86,7 +90,34 @@ public class ScriptToGroovyVisitor extends ScriptVisitorSupport {
     public void visit() {
         if( moduleNode == null )
             return;
-        super.visit(moduleNode);
+
+        var declarations = moduleNode.getDeclarations();
+
+        declarations.sort(Comparator.comparing(node -> node.getLineNumber()));
+
+        for( var decl : declarations ) {
+            if( decl instanceof ClassNode cn && cn.isEnum() )
+                visitEnum(cn);
+            else if( decl instanceof FeatureFlagNode ffn )
+                visitFeatureFlag(ffn);
+            else if( decl instanceof FunctionNode fn )
+                visitFunction(fn);
+            else if( decl instanceof IncludeNode in )
+                visitInclude(in);
+            else if( decl instanceof OutputBlockNode obn )
+                visitOutputs(obn);
+            else if( decl instanceof ParamBlockNode pbn )
+                visitParams(pbn);
+            else if( decl instanceof ParamNodeV1 pn )
+                visitParamV1(pn);
+            else if( decl instanceof ProcessNode pn )
+                visitProcess(pn);
+            else if( decl instanceof RecordNode rn )
+                visitRecord(rn);
+            else if( decl instanceof WorkflowNode wn )
+                visitWorkflow(wn);
+        }
+
         if( moduleNode.isEmpty() )
             moduleNode.addStatement(ReturnStatement.RETURN_NULL_OR_VOID);
     }
@@ -125,7 +156,7 @@ public class ScriptToGroovyVisitor extends ScriptVisitorSupport {
             .map((param) -> {
                 var name = constX(param.getName());
                 var type = classX(param.getType());
-                var optional = constX(type.getNodeMetaData(ASTNodeMarker.NULLABLE) != null);
+                var optional = constX(param.getType().getNodeMetaData(ASTNodeMarker.NULLABLE) != null);
                 var arguments = param.hasInitialExpression()
                     ? args(name, type, optional, param.getInitialExpression())
                     : args(name, type, optional);
@@ -257,6 +288,18 @@ public class ScriptToGroovyVisitor extends ScriptVisitorSupport {
             .toList();
         var closure = closureX(null, block(new VariableScope(), statements));
         var result = stmt(callThisX("output", args(closure)));
+        moduleNode.addStatement(result);
+    }
+
+    @Override
+    public void visitRecord(RecordNode node) {
+        var result = stmt(callThisX("declareType", args(classX(node))));
+        moduleNode.addStatement(result);
+    }
+
+    @Override
+    public void visitEnum(ClassNode node) {
+        var result = stmt(callThisX("declareType", args(classX(node))));
         moduleNode.addStatement(result);
     }
 

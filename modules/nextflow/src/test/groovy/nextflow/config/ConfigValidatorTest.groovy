@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2024, Seqera Labs
+ * Copyright 2013-2026, Seqera Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -146,6 +146,18 @@ class ConfigValidatorTest extends Specification {
         ])
         then:
         !capture.toString().contains('Unrecognized config option')
+    }
+
+    def 'should not validate core plugin config when plugin is not loaded' () {
+        when:
+        new ConfigValidator().validate([
+            cloudcache: [
+                enabled: true,
+                path: 's3://bucket/cache'
+            ]
+        ])
+        then:
+        !capture.toString().contains("Unrecognized config option 'cloudcache'")
     }
 
 }

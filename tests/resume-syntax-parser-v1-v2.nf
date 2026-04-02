@@ -1,3 +1,4 @@
+#!/usr/bin/env nextflow
 /*
  * Copyright 2013-2024, Seqera Labs
  *
@@ -14,29 +15,19 @@
  * limitations under the License.
  */
 
-package nextflow.trace.event
+process hello {
+    input:
+    val greeting
 
-import groovy.transform.Canonical
-import groovy.transform.CompileStatic
+    output:
+    stdout
 
-/**
- * Models a workflow publish event, which is emitted for each value
- * that is published to a workflow output from a dataflow source.
- *
- * @author Rob Syme <rob.syme@gmail.com>
- */
-@Canonical
-@CompileStatic
-class WorkflowPublishEvent {
-    /**
-     * The name of the workflow output.
-     */
-    String name
-    /**
-     * The published value.
-     *
-     * File paths from the work directory are normalized to
-     * their corresponding path in the output directory.
-     */
-    Object value
+    script:
+    """
+    echo '${greeting}'
+    """
+}
+
+workflow {
+    hello( 'ciao' ).view()
 }

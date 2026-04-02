@@ -49,7 +49,7 @@ params {
     input: Path
 
     // Whether to save intermediate files.
-    save_intermeds: Boolean = false
+    save_intermeds: Boolean
 }
 ```
 
@@ -69,7 +69,7 @@ As a best practice, parameters should only be referenced in the entry workflow o
 
 The default value can be overridden by the command line, params file, or config file. Parameters from multiple sources are resolved in the order described in {ref}`cli-params`. Parameters specified on the command line are converted to the appropriate type based on the corresponding type annotation.
 
-A parameter that doesn't specify a default value is a *required* parameter. If a required parameter is not given a value at runtime, the run will fail.
+A parameter that doesn't specify a default value is a *required* parameter. If a required parameter is not given a value at runtime, the run will fail. Boolean parameters that don't specify a default value default to `false`.
 
 :::{versionadded} 26.04.0
 :::
@@ -266,8 +266,8 @@ Outputs can be conditionally published using pipeline parameters:
 output {
     samples {
         path { sample ->
-            sample.fastqc >> "fastqc"
-            sample.bam >> params.save_bams ? "align" : null
+            sample.fastqc >> "fastqc/"
+            sample.bam >> (params.save_bams ? "align/" : null)
         }
     }
 }
@@ -337,6 +337,23 @@ Files that do not originate from the work directory are not published, but are i
 
 See [Output directives](#output-directives) for the list of available index directives.
 
+(workflow-output-labels)=
+
+### Labels
+
+You can apply labels to each workflow output using the `label` directive:
+
+```nextflow
+output {
+    multiqc_report {
+        label 'qc'
+        label 'summary'
+    }
+}
+```
+
+Labels can be used to find and filter output files across workflow runs with data lineage. See {ref}`data-lineage-workflow-outputs` for details on how to query output files by label.
+
 ### Output directives
 
 The following directives are available for each output in the output block:
@@ -356,7 +373,8 @@ The following directives are available for each output in the output block:
   : The character used to separate values (default: `','`). Only used for CSV files.
 
 `label`
-: Specify a label to be applied to every published file. Can be specified multiple times.
+: Attach a label to every file published by this output. Can be specified multiple times to attach multiple labels.
+: Labels are stored in the `labels` field of `FileOutput` records in the {ref}`lineage store <data-lineage-page>`.
 
 `path`
 : Specify the publish path relative to the output directory (default: `'.'`). Can be a path, a closure that defines a custom directory for each published value, or a closure that publishes individual files using the `>>` operator.

@@ -1,13 +1,30 @@
+/*
+ * Copyright 2013-2026, Seqera Labs
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package nextflow.script
 
 import java.nio.file.Files
+import java.nio.file.Path
 
 import nextflow.Channel
 import nextflow.Session
 import nextflow.SysEnv
+import nextflow.exception.ScriptRuntimeException
 import nextflow.trace.event.FilePublishEvent
 import nextflow.trace.event.WorkflowOutputEvent
-import nextflow.trace.event.WorkflowPublishEvent
 import spock.lang.Specification
 
 import static test.ScriptHelper.runDataflow
@@ -60,7 +77,6 @@ class OutputDslTest extends Specification {
         }
         dsl.apply(session)
         session.fireDataflowNetwork()
-        dsl.getOutput()
 
         then:
         outputDir.resolve('foo/file1.txt').text == 'Hello'
@@ -71,8 +87,6 @@ class OutputDslTest extends Specification {
         and:
         session.notifyFilePublish(new FilePublishEvent(file1, outputDir.resolve('foo/file1.txt'), null))
         session.notifyFilePublish(new FilePublishEvent(file2, outputDir.resolve('barbar/file2.txt'), ['foo', 'bar']))
-        session.notifyWorkflowPublish(new WorkflowPublishEvent('foo', outputDir.resolve('foo/file1.txt')))
-        session.notifyWorkflowPublish(new WorkflowPublishEvent('bar', outputDir.resolve('barbar/file2.txt')))
         session.notifyWorkflowOutput(new WorkflowOutputEvent('foo', [outputDir.resolve('foo/file1.txt')], null))
         session.notifyWorkflowOutput(new WorkflowOutputEvent('bar', [outputDir.resolve('barbar/file2.txt')], outputDir.resolve('index.csv')))
         session.notifyFilePublish(new FilePublishEvent(null, outputDir.resolve('index.csv'), ['foo', 'bar']))
@@ -107,13 +121,11 @@ class OutputDslTest extends Specification {
         }
         dsl.apply(session)
         session.fireDataflowNetwork()
-        dsl.getOutput()
 
         then:
         outputDir.resolve('file1.txt').text == 'Hello'
         and:
         session.notifyFilePublish(new FilePublishEvent(file1, outputDir.resolve('file1.txt'), null))
-        session.notifyWorkflowPublish(new WorkflowPublishEvent('foo', outputDir.resolve('file1.txt')))
         session.notifyWorkflowOutput(new WorkflowOutputEvent('foo', [outputDir.resolve('file1.txt')], null))
 
         cleanup:
@@ -148,11 +160,9 @@ class OutputDslTest extends Specification {
         }
         dsl.apply(session)
         session.fireDataflowNetwork()
-        dsl.getOutput()
 
         then:
         0 * session.notifyFilePublish(_)
-        session.notifyWorkflowPublish(new WorkflowPublishEvent('foo', record))
         session.notifyWorkflowOutput(new WorkflowOutputEvent('foo', [ record ], null))
 
         cleanup:
@@ -206,6 +216,91 @@ class OutputDslTest extends Specification {
             path: 'path',
             sep: ',',
         ]
+    }
+
+    def 'should report error for invalid path directive' () {
+        when:
+        def session = new Session(outputDir: Path.of('results')) {
+            void abort(Throwable cause) { throw cause }
+        }
+
+        session.outputs.put('foo', Channel.of(1, 2, 3))
+
+        def dsl = new OutputDsl()
+        dsl.declare('foo') {
+            path { v -> 42 }
+        }
+        dsl.apply(session)
+        session.fireDataflowNetwork()
+
+        then:
+        def e = thrown(ScriptRuntimeException)
+        e.message.contains "Invalid `path` directive for workflow output 'foo'"
+        e.message.contains "expected a string or publish statements, but received: 42 [Integer]"
+    }
+
+    def 'should report error for invalid publish target' () {
+        when:
+        def session = new Session(outputDir: Path.of('results')) {
+            void abort(Throwable cause) { throw cause }
+        }
+        def file = Path.of('output.txt')
+
+        session.outputs.put('foo', Channel.of([file, file, file]))
+
+        def dsl = new OutputDsl()
+        dsl.declare('foo') {
+            path { files -> publish(files, 'foo.txt') }
+        }
+        dsl.apply(session)
+        session.fireDataflowNetwork()
+
+        then:
+        def e = thrown(ScriptRuntimeException)
+        e.message.contains "Invalid publish target 'foo.txt' for workflow output 'foo'"
+    }
+
+    def 'should report error for invalid publish source' () {
+        when:
+        def session = new Session(outputDir: Path.of('results')) {
+            void abort(Throwable cause) { throw cause }
+        }
+
+        session.outputs.put('foo', Channel.of(42))
+
+        def dsl = new OutputDsl()
+        dsl.declare('foo') {
+            path { v -> publish(v, 'foo') }
+        }
+        dsl.apply(session)
+        session.fireDataflowNetwork()
+
+        then:
+        def e = thrown(ScriptRuntimeException)
+        e.message.contains "Invalid publish source for workflow output 'foo'"
+        e.message.contains "expected a file or collection of files, but received: 42 [Integer]"
+    }
+
+    def 'should report error for invalid index file extension' () {
+        when:
+        def session = new Session(outputDir: Path.of('results')) {
+            void abort(Throwable cause) { throw cause }
+        }
+
+        session.outputs.put('foo', Channel.empty())
+
+        def dsl = new OutputDsl()
+        dsl.declare('foo') {
+            index {
+                path 'index.txt'
+            }
+        }
+        dsl.apply(session)
+        session.fireDataflowNetwork()
+
+        then:
+        def e = thrown(ScriptRuntimeException)
+        e.message.contains "Invalid extension 'txt' for index file 'index.txt'"
     }
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2024, Seqera Labs
+ * Copyright 2013-2026, Seqera Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -444,7 +444,7 @@ class AwsBatchTaskHandlerTest extends Specification {
         def JOB_ID = '123'
         def client = Mock(BatchClient)
         def task = Mock(TaskRun)
-        def handler = Spy(AwsBatchTaskHandler) 
+        def handler = Spy(AwsBatchTaskHandler)
         handler.task = task
         handler.@client = client
 
@@ -527,7 +527,7 @@ class AwsBatchTaskHandlerTest extends Specification {
         ]
         and:
         handler.addVolumeMountsToContainer(mounts, containerModel)
-        
+
         when:
         def container = containerModel.toBatchContainerProperties()
         then:
@@ -581,7 +581,7 @@ class AwsBatchTaskHandlerTest extends Specification {
         result.containerProperties.logConfiguration == null
         result.containerProperties.mountPoints == null
         result.containerProperties.privileged == false
-        
+
         when:
         result = handler.makeJobDefRequest(task)
         then:
@@ -908,9 +908,9 @@ class AwsBatchTaskHandlerTest extends Specification {
         when:
         def trace = handler.getTraceRecord()
         then:
-        1 * handler.isCompleted() >> false
+        2 * handler.isCompleted() >> false
         1 * handler.getMachineInfo() >> new CloudMachineInfo('x1.large', 'us-east-1b', PriceModel.spot)
-        
+
         and:
         trace.native_id == 'xyz-123'
         trace.executorName == 'awsbatch'
@@ -1121,7 +1121,7 @@ class AwsBatchTaskHandlerTest extends Specification {
 
         expect:
         handler.normaliseJobId(JOB_ID) == EXPECTED
-        
+
         where:
         JOB_ID       | EXPECTED
         null         | null
@@ -1140,7 +1140,7 @@ class AwsBatchTaskHandlerTest extends Specification {
         task.getName() >> NAME
         and:
         result == EXPECTED
-        
+
         where:
         ENV                             | NAME      | EXPECTED
         [:]                             | 'foo'     | 'foo'
@@ -1297,12 +1297,14 @@ class AwsBatchTaskHandlerTest extends Specification {
         when:
         def resultNoAttempts = handler.getNumSpotInterruptions('job-123')
         then:
+        1 * handler.isCompleted() >> true
         1 * handler.describeJob('job-123') >> JobDetail.builder().attempts([]).build()
         resultNoAttempts == 0
 
         when:
         def resultNonSpot = handler.getNumSpotInterruptions('job-456')
         then:
+        1 * handler.isCompleted() >> true
         1 * handler.describeJob('job-456') >> JobDetail.builder().attempts([attempt1, attempt2]).build()
         resultNonSpot == 0
     }
@@ -1314,18 +1316,21 @@ class AwsBatchTaskHandlerTest extends Specification {
         when:
         def resultNotCompleted = handler.getNumSpotInterruptions('job-123')
         then:
-        1 * handler.describeJob(_)
+        1 * handler.isCompleted() >> false
+        0 * handler.describeJob(_)
         resultNotCompleted == null
 
         when:
         def resultNullJobId = handler.getNumSpotInterruptions(null)
         then:
+        0 * handler.isCompleted()
         0 * handler.describeJob(_)
         resultNullJobId == null
 
         when:
         def resultException = handler.getNumSpotInterruptions('job-789')
         then:
+        1 * handler.isCompleted() >> true
         1 * handler.describeJob('job-789') >> { throw new RuntimeException("Error") }
         resultException == null
     }
