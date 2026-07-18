@@ -22,6 +22,7 @@ import groovy.util.logging.Slf4j
 import nextflow.Session
 import nextflow.Nextflow
 import nextflow.module.ModuleSpec
+import nextflow.module.ModuleSpecFactory
 import nextflow.module.ModuleStorage
 import nextflow.script.params.EnvInParam
 import nextflow.script.params.FileInParam
@@ -30,6 +31,11 @@ import nextflow.script.params.StdInParam
 import nextflow.script.params.TupleInParam
 import nextflow.script.params.v2.ProcessInput
 import nextflow.script.params.v2.ProcessTupleInput
+import nextflow.script.dsl.Types
+import nextflow.script.types.Record
+import nextflow.util.RecordMap
+import nextflow.util.TypeHelper
+import org.codehaus.groovy.runtime.typehandling.GroovyCastException
 
 /**
  * Helper class for process entry execution feature.
@@ -67,7 +73,7 @@ class ProcessEntryHandler {
     /**
      * Creates a workflow to execute the specified process.
      *
-     * Parameters are autoamtically mapped to process inputs, and
+     * Parameters are automatically mapped to process inputs, and
      * process outputs are mapped to workflow outputs.
      */
     WorkflowDef createEntryWorkflow() {
@@ -129,7 +135,7 @@ class ProcessEntryHandler {
         if( output.isEmpty() )
             return Collections.emptyList()
         if( output.size() == 1 && names.isEmpty() )
-            return List.of('result')
+            return List.of('$out')
         return names
     }
 
@@ -139,13 +145,13 @@ class ProcessEntryHandler {
         if( output.isEmpty() )
             return Collections.emptyList()
         if( output.size() == 1 && (names.isEmpty() || names.first() == '$out') )
-            return List.of('result')
+            return List.of('$out')
         return names
     }
 
     /**
-     * Gets the input arguments for a process by parsing input parameter structures
-     * and mapping them from session.params, supporting dot notation for complex inputs.
+     * Gets the input arguments for a process by mapping the session params to
+     * declared process inputs.
      *
      * @param processDef The ProcessDef object containing the process definition
      * @return List of parameter values to pass to the process
@@ -169,35 +175,6 @@ class ProcessEntryHandler {
         }
     }
 
-    /**
-     * Parses complex parameters with dot notation support.
-     * Converts flat parameters like --meta.id=1 --meta.name=test to nested maps.
-     *
-     * @param params Flat parameter map from session.params
-     * @return Map with nested structures for complex parameters
-     */
-    private Map parseComplexParameters(Map params) {
-        Map complexParams = [:]
-
-        for( final entry : params.entrySet() ) {
-            final parts = entry.key.toString().split('\\.')
-            if( parts.length > 1 ) {
-                Map current = complexParams
-                for( int i = 0; i < parts.length - 1; i++ ) {
-                    if( current[parts[i]] !instanceof Map ) {
-                        current[parts[i]] = [:]
-                    }
-                    current = (Map) current[parts[i]]
-                }
-                current[parts[-1]] = entry.value
-            } else {
-                complexParams[entry.key] = entry.value
-            }
-        }
-
-        return complexParams
-    }
-
     private List getProcessArgumentsV1(ProcessConfigV1 config, Map params) {
         final declaredInputs = config.getInputs()
 
@@ -205,13 +182,9 @@ class ProcessEntryHandler {
             return []
         }
 
-        // Parse parameter values from session.params (handles dot notation)
-        final paramValues = parseComplexParameters(params)
-
         // Load parameter types from module spec (if available)
-        final paramTypes = getModuleSpecInputTypes()
-
-        log.debug "Parameter values: ${paramValues}"
+        final scriptPath = script.getBinding().getScriptPath()
+        final paramTypes = getModuleSpecInputTypes(scriptPath)
 
         // Map declared inputs to command-line arguments
         List arguments = []
@@ -219,13 +192,13 @@ class ProcessEntryHandler {
             if( param instanceof TupleInParam ) {
                 List tupleElements = []
                 for( final innerParam : param.inner ) {
-                    final value = getValueForInputV1(innerParam, paramValues, paramTypes)
+                    final value = getValueForInputV1(innerParam, params, paramTypes)
                     tupleElements.add(value)
                 }
                 arguments.add(tupleElements)
             }
             else {
-                final value = getValueForInputV1(param, paramValues, paramTypes)
+                final value = getValueForInputV1(param, params, paramTypes)
                 arguments.add(value)
             }
         }
@@ -234,20 +207,46 @@ class ProcessEntryHandler {
     }
 
     /**
-     * Load mapping of input types from the module spec if available. Returns null
+     * Load mapping of input types from the module spec if available. Returns empty map
      * if module spec is absent or unreadable.
      */
-    private Map<String, Class> getModuleSpecInputTypes() {
+    private static Map<String, Class> getModuleSpecInputTypes(Path scriptPath) {
         try {
-            final scriptPath = script.getBinding().getScriptPath()
             final specPath = scriptPath?.resolveSibling(ModuleStorage.MODULE_MANIFEST_FILE)
-            if( specPath )
-                return ModuleSpec.loadInputTypes(specPath)
+            final spec = ModuleSpecFactory.fromYaml(specPath)
+            return moduleSpecInputTypes(spec)
         }
         catch( Exception e ) {
             log.debug "Could not load input types from module spec: ${e.message}"
         }
         return Collections.emptyMap()
+    }
+
+    private static Map<String, Class> moduleSpecInputTypes(ModuleSpec spec) {
+        final Map<String, Class> result = [:]
+        for( final input : spec.inputs ) {
+            if( input.isTuple() ) {
+                for( final el : input.components )
+                    result.put(el.name, inputType(el.type))
+            }
+            else {
+                result.put(input.name, inputType(input.type))
+            }
+        }
+        return result
+    }
+
+    private static Class inputType(String type) {
+        return switch( type ) {
+            case 'boolean' -> Boolean
+            case 'file' -> Path
+            case 'directory' -> Path
+            case 'float' -> Number
+            case 'integer' -> Integer
+            case 'map' -> Map
+            case 'string' -> String
+            default -> null
+        }
     }
 
     /**
@@ -264,6 +263,10 @@ class ProcessEntryHandler {
         final value = namedArgs.get(name)
 
         if( value == null ) {
+            if( param instanceof FileInParam ) {
+                log.warn "Path input '--${name}' not provided, defaulting to empty list"
+                return []
+            }
             throw new IllegalArgumentException("Missing required parameter: --${name}")
         }
 
@@ -322,23 +325,27 @@ class ProcessEntryHandler {
             return []
         }
 
-        // Parse complex parameters from session.params (handles dot notation)
-        final paramValues = parseComplexParameters(params)
-        log.debug "Parameter values: ${paramValues}"
-
         // Map declared inputs to command-line arguments
         List arguments = []
         for( final param : declaredInputs ) {
-            if( param instanceof ProcessTupleInput ) {
-                List tupleElements = []
+            if( param instanceof ProcessTupleInput && param.getType() == Record.class ) {
+                final Map<String,Object> recordFields = [:]
                 for( final innerParam : param.getComponents() ) {
-                    final value = getValueForInputV2(innerParam, paramValues)
+                    final value = getValueForInputV2(innerParam, params)
+                    recordFields.put(innerParam.getName(), value)
+                }
+                arguments.add(new RecordMap(recordFields))
+            }
+            else if( param instanceof ProcessTupleInput ) {
+                final List tupleElements = []
+                for( final innerParam : param.getComponents() ) {
+                    final value = getValueForInputV2(innerParam, params)
                     tupleElements.add(value)
                 }
                 arguments.add(tupleElements)
             }
             else {
-                final value = getValueForInputV2(param, paramValues)
+                final value = getValueForInputV2(param, params)
                 arguments.add(value)
             }
         }
@@ -359,13 +366,18 @@ class ProcessEntryHandler {
         final value = namedArgs.get(name)
 
         if( value == null ) {
+            if( param.isOptional() )
+                return null
             throw new IllegalArgumentException("Missing required parameter: --${name}")
         }
 
-        if( value !instanceof String )
+        if( value instanceof Collection || value instanceof Map )
+            return asType(value, param)
+
+        if( value !instanceof CharSequence )
             return value
 
-        final str = (String) value
+        final str = value.toString()
 
         if( type == Boolean ) {
             if( str.toLowerCase() == 'true' ) return Boolean.TRUE
@@ -375,18 +387,30 @@ class ProcessEntryHandler {
         if( type == Integer || type == Float ) {
             if( str.isInteger() ) return str.toInteger()
             if( str.isLong() ) return str.toLong()
+            if( str.isBigInteger() ) return str.toBigInteger()
         }
 
         if( type == Float ) {
             if( str.isFloat() ) return str.toFloat()
             if( str.isDouble() ) return str.toDouble()
+            if( str.isBigDecimal() ) return str.toBigDecimal()
         }
 
         if( type == Path ) {
-            return Nextflow.file(str)
+            return TypeHelper.asPathType(str)
         }
 
         return value
+    }
+
+    private static Object asType(Object value, ProcessInput param) {
+        try {
+            return TypeHelper.asType(value, param.type)
+        }
+        catch( GroovyCastException | UnsupportedOperationException e ) {
+            final actualType = value.getClass()
+            throw new IllegalArgumentException("Parameter `--${param.name}` with type ${Types.getName(param.type)} cannot be assigned to ${value} [${Types.getName(actualType)}]")
+        }
     }
 
     /**
@@ -395,10 +419,10 @@ class ProcessEntryHandler {
      * Otherwise returns a single file object.
      *
      * @param fileInput String representation of file path(s)
-     * @return Single file object or List of file objects
+     * @return Single file or list of files
      */
     protected Object parseFileInput(String fileInput) {
-        if (fileInput.contains(',')) {
+        if( fileInput.contains(',') ) {
             // Split by comma, trim whitespace, and convert each to a file
             return fileInput.tokenize(',')
                 .collect { it.trim() }

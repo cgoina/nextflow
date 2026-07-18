@@ -16,8 +16,7 @@
 
 package io.seqera.tower.plugin.auth
 
-import io.seqera.http.HxClient
-import io.seqera.tower.plugin.TowerCommonApi
+import io.seqera.tower.plugin.TowerClient
 import nextflow.Const
 import nextflow.SysEnv
 import nextflow.util.ColorUtil
@@ -26,9 +25,10 @@ import spock.lang.Specification
 import spock.lang.TempDir
 import test.OutputCapture
 
-import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermission
+import java.nio.file.attribute.PosixFilePermissions
 
 /**
  * Test CmdAuth functionality
@@ -217,6 +217,49 @@ param2 = 'value2'"""
         authContent.contains('accessToken = \'test-token-123\'')
         authContent.contains('endpoint = \'https://api.cloud.seqera.io\'')
         authContent.contains('enabled = true')
+    }
+
+    def 'should write seqera-auth.config with owner-only permissions'() {
+        given:
+        def cmd = Spy(AuthCommandImpl)
+        def authFile = tempDir.resolve('seqera-auth.config')
+        def configFile = tempDir.resolve('config')
+
+        cmd.getAuthFile() >> authFile
+        cmd.getConfigFile() >> configFile
+
+        def config = ['tower.accessToken': 'test-token']
+
+        when:
+        cmd.writeConfig(config, null)
+
+        then:
+        Files.exists(authFile)
+        Files.getPosixFilePermissions(authFile) == EnumSet.of(
+            PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+    }
+
+    def 'should re-harden permissions when overwriting an existing world-readable file'() {
+        given:
+        def cmd = Spy(AuthCommandImpl)
+        def authFile = tempDir.resolve('seqera-auth.config')
+        def configFile = tempDir.resolve('config')
+
+        Files.writeString(authFile, 'tower { accessToken = "stale" }')
+        Files.setPosixFilePermissions(authFile, PosixFilePermissions.fromString('rw-r--r--'))
+
+        cmd.getAuthFile() >> authFile
+        cmd.getConfigFile() >> configFile
+
+        def config = ['tower.accessToken': 'test-token']
+
+        when:
+        cmd.writeConfig(config, null)
+
+        then:
+        Files.getPosixFilePermissions(authFile) == EnumSet.of(
+            PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+        Files.readString(authFile).contains('test-token')
     }
 
     def 'should write config with workspace metadata'() {
@@ -652,13 +695,14 @@ param2 = 'value2'"""
         ]
 
         // Mock API calls
-        def commonApi = Mock(TowerCommonApi){
-            getUserInfo(_, _) >> [userName: 'testuser', id: '123']
-            getWorkflowDetails(_, _, _) >> null
+        def client = Mock(TowerClient){
+            getUserInfo() >> [userName: 'testuser', id: '123']
+            getWorkflowDetails(_, _) >> null
         }
-        def cmd = Spy(new AuthCommandImpl(commonApi))
+        def cmd = Spy(new AuthCommandImpl())
+        cmd.createTowerClient(_,_) >> client
         cmd.checkApiConnection(_) >> true
-        cmd.listComputeEnvironments(_, _, _) >> [[name: 'ce_test', platform: 'aws', workDir: 's3://test', primary: true]]
+        cmd.listComputeEnvironments(_, _) >> [[name: 'ce_test', platform: 'aws', workDir: 's3://test', primary: true]]
 
         when:
         def status = cmd.collectStatus(config)
@@ -717,6 +761,7 @@ param2 = 'value2'"""
         given:
         def cmd = Spy(AuthCommandImpl)
         def config = ['tower.endpoint': 'https://unreachable.example.com']
+        SysEnv.push([:])  // Isolate from actual environment variables (avoid real network calls)
 
         cmd.checkApiConnection(_) >> false
 
@@ -727,6 +772,9 @@ param2 = 'value2'"""
         status != null
         status.table[1][0] == 'API connection'
         status.table[1][1].contains('ERROR')
+
+        cleanup:
+        SysEnv.pop()
     }
 
     def 'should collect status with failed authentication'() {
@@ -734,10 +782,11 @@ param2 = 'value2'"""
         def config = ['tower.accessToken': 'invalid-token']
         SysEnv.push([:])  // Isolate from actual environment variables
 
-        def commonApi = Mock(TowerCommonApi){
-            getUserInfo(_, _) >> { throw new RuntimeException('Invalid token') }
+        def client = Mock(TowerClient){
+            getUserInfo() >> { throw new RuntimeException('Invalid token') }
         }
-        def cmd = Spy(new AuthCommandImpl(commonApi))
+        def cmd = Spy(new AuthCommandImpl())
+        cmd.createTowerClient(_,_) >> client
         cmd.checkApiConnection(_) >> true
         when:
         def status = cmd.collectStatus(config)
@@ -756,6 +805,7 @@ param2 = 'value2'"""
         given:
         def cmd = Spy(AuthCommandImpl)
         def config = ['tower.enabled': true]
+        SysEnv.push([:])  // Isolate from actual environment variables (avoid real network calls)
 
         cmd.checkApiConnection(_) >> true
 
@@ -766,12 +816,16 @@ param2 = 'value2'"""
         status != null
         status.table[3][0] == 'Workflow monitoring'
         status.table[3][1].contains('Yes')
+
+        cleanup:
+        SysEnv.pop()
     }
 
     def 'should collect status with monitoring disabled'() {
         given:
         def cmd = Spy(AuthCommandImpl)
         def config = ['tower.enabled': false]
+        SysEnv.push([:])  // Isolate from actual environment variables (avoid real network calls)
 
         cmd.checkApiConnection(_) >> true
 
@@ -782,6 +836,9 @@ param2 = 'value2'"""
         status != null
         status.table[3][0] == 'Workflow monitoring'
         status.table[3][1].contains('No')
+
+        cleanup:
+        SysEnv.pop()
     }
 
     def 'should collect status with workspace details'() {
@@ -791,15 +848,16 @@ param2 = 'value2'"""
             'tower.accessToken': 'test-token',
             'tower.workspaceId': '12345'
         ]
-        def commonApi = Mock(TowerCommonApi){
-            getUserInfo(_, _) >> [userName: 'testuser', id: '123']
-            getUserWorkspaceDetails(_, _, _, _) >> [
+        def client = Mock(TowerClient){
+            getUserInfo() >> [userName: 'testuser', id: '123']
+            getUserWorkspaceDetails(_, _) >> [
                 orgName: 'TestOrg',
                 workspaceName: 'TestWorkspace',
                 workspaceFullName: 'test-org/test-workspace'
             ]
         }
-        def cmd = Spy(new AuthCommandImpl(commonApi))
+        def cmd = Spy(new AuthCommandImpl())
+        cmd.createTowerClient(_,_) >> client
         cmd.checkApiConnection(_) >> true
 
         when:
@@ -817,15 +875,16 @@ param2 = 'value2'"""
     def 'should collect status with workspace ID but no details'() {
         given:
 
-        def commonApi = Mock(TowerCommonApi){
-            getUserInfo(_, _) >> [userName: 'testuser', id: '123']
-            getUserWorkspaceDetails(_, _, _, _) >> null
+        def client = Mock(TowerClient){
+            getUserInfo() >> [userName: 'testuser', id: '123']
+            getUserWorkspaceDetails(_, _) >> null
         }
         def config = [
             'tower.accessToken': 'test-token',
             'tower.workspaceId': '12345'
         ]
-        def cmd = Spy(new AuthCommandImpl(commonApi))
+        def cmd = Spy(new AuthCommandImpl())
+        cmd.createTowerClient(_,_) >> client
         cmd.checkApiConnection(_) >> true
 
         when:
@@ -840,14 +899,15 @@ param2 = 'value2'"""
 
     def 'should collect status from environment variables'() {
         given:
-        def commonApi  = Mock(TowerCommonApi){
-            getUserInfo(_, _) >> [userName: 'envuser', id: '456']
-            getUserWorkspaceDetails(_, _, _, _) >> [:]
+        def client  = Mock(TowerClient){
+            getUserInfo() >> [userName: 'envuser', id: '456']
+            getUserWorkspaceDetails(_, _) >> [:]
         }
         def config = [:]
-        def cmd = Spy(new AuthCommandImpl(commonApi))
+        def cmd = Spy(new AuthCommandImpl())
+        cmd.createTowerClient(_,_) >> client
         cmd.checkApiConnection(_) >> true
-        cmd.listComputeEnvironments(_,_,_) >> []
+        cmd.listComputeEnvironments(_,_) >> []
 
         SysEnv.push(['TOWER_ACCESS_TOKEN': 'env-token',
                      'TOWER_API_ENDPOINT': 'https://env.example.com',
@@ -874,6 +934,7 @@ param2 = 'value2'"""
         given:
         def cmd = Spy(AuthCommandImpl)
         def config = [:]
+        SysEnv.push([:])  // Isolate from actual environment variables (avoid real network calls)
 
         cmd.checkApiConnection(_) >> true
 
@@ -888,17 +949,20 @@ param2 = 'value2'"""
         // Should show monitoring disabled by default
         status.table[3][1].contains('No')
         status.table[3][2] == 'default'
+
+        cleanup:
+        SysEnv.pop()
     }
 
     def 'should collect status with mixed sources'() {
         given:
-        def commonApi = Mock(TowerCommonApi) {
-            getUserInfo(_, _) >> [userName: 'mixeduser', id: '789']
+        def client = Mock(TowerClient) {
+            getUserInfo() >> [userName: 'mixeduser', id: '789']
         }
-        def cmd = Spy(new AuthCommandImpl(commonApi))
+        def cmd = Spy(new AuthCommandImpl())
+        cmd.createTowerClient(_,_) >> client
         def authFile = tempDir.resolve('seqera-auth.config')
         def configFile = tempDir.resolve('config')
-
         cmd.getAuthFile() >> authFile
         cmd.getConfigFile() >> configFile
 
@@ -1071,15 +1135,15 @@ param2 = 'value2'"""
         given:
         def cmd = Spy(AuthCommandImpl)
         def username = System.getProperty('user.name')
-
-        cmd.createHttpClient(_) >> {
-            def mockClient = Mock(HxClient)
-            def mockResponse = Mock(HttpResponse)
-            mockResponse.statusCode() >> 200
-            mockResponse.body() >> '{"accessKey":"generated-pat-123","id":"token-id-456"}'
-            mockClient.send(_, _) >> mockResponse
-            return mockClient
+        def mockApiResponse = Mock(TowerClient.Response){
+            getCode() >> 200
+            getMessage() >> '{"accessKey":"generated-pat-123","id":"token-id-456"}'
         }
+        def mockClient = Mock(TowerClient){
+            sendApiRequest(_,_,_) >> mockApiResponse
+        }
+
+        cmd.createTowerClient(_,_) >> mockClient
 
         when:
         def pat = cmd.generatePAT('auth-token', 'https://api.cloud.seqera.io')
@@ -1092,14 +1156,15 @@ param2 = 'value2'"""
         given:
         def cmd = Spy(AuthCommandImpl)
 
-        cmd.createHttpClient(_) >> {
-            def mockClient = Mock(HxClient)
-            def mockResponse = Mock(HttpResponse)
-            mockResponse.statusCode() >> 401
-            mockResponse.body() >> 'Unauthorized'
-            mockClient.send(_, _) >> mockResponse
-            return mockClient
+        def mockApiResponse = Mock(TowerClient.Response){
+            getCode() >> 401
+            getMessage() >> 'Unauthorized'
         }
+        def mockClient = Mock(TowerClient){
+            sendApiRequest(_,_,_) >> mockApiResponse
+        }
+
+        cmd.createTowerClient(_,_) >> mockClient
 
         when:
         cmd.generatePAT('invalid-token', 'https://api.cloud.seqera.io')
